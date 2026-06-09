@@ -144,6 +144,20 @@ In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM**
 
 ---
 
+## Before you deploy
+
+A few decisions to make up front — each maps to a value you'll set during configuration:
+
+- **LLM + where it runs** — by default, vLLM serves a Hugging Face model locally on your GPU. Alternatively, point `ai-agent` at any OpenAI-compatible endpoint (another host or a hosted API) via `VLLM_BASE_URL`. Either way, decide the model ID.
+- **Embedding model** — defaults to `nomic-embed-text-v1.5` (768 dims). If you change it, update `ingestion` `embeddingDim` to match.
+- **Web search provider** — pick one (Brave, SearXNG, Serper, Tavily) or none. All but SearXNG need an API key; RAG search over your own documents works without any.
+- **Vector DB API key** — you choose the `QDRANT_API_KEY` value at bootstrap (any string).
+- **Storage** — an NFS server (model weights + ingestion/Open-WebUI data) and a `local-path` StorageClass for Qdrant.
+- **GPU node + access IP** — the node hostname for `nodeSelector`, and its IP (`NODE_IP`) for NodePort access.
+- **Container images** — use the project's published `open-rag-*` images, or fork and let CI build your own.
+
+---
+
 ## Quick start
 
 ### 1. Configure values
