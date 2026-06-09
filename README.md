@@ -209,10 +209,8 @@ This runs `helm upgrade --install` for each service into its namespace — no Gi
 If you fork this repo and want the CI to build and push images to your own GHCR namespace:
 
 1. Fork to your GitHub account.
-2. Create a GitHub PAT with `write:packages` scope.
-3. Add it as a repository secret named `GHCR_TOKEN` (Settings → Secrets and variables → Actions → New repository secret).
-4. Push a commit to `main` — the three `build-*.yml` workflows will build and push `ghcr.io/<your-username>/ai-agent`, `embedding`, and `ingestion`.
-5. Update `image.repository` in each chart's `values.yaml` to point to your GHCR namespace.
+2. Push a commit to `main` — the three `build-*.yml` workflows authenticate with the built-in `GITHUB_TOKEN` (no secret setup required) and push `ghcr.io/<your-username>/ai-agent`, `embedding`, and `ingestion`.
+3. Update `image.repository` in each chart's `values.yaml` to point to your GHCR namespace.
 
 **Making packages public (optional but simpler):** After the first CI run, go to each package on your GitHub profile → Change visibility → Public. This allows Kubernetes to pull without a pull secret.
 
