@@ -1,0 +1,16 @@
+# Local env overrides — never commit
+.env
+*.env.local
+
+# Graphify knowledge graph (local tooling, rebuilt on demand)
+graphify-out/
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
+
+# Draw.io backup files
+*.bkp
+
+# OS
+.DS_Store
+Thumbs.db

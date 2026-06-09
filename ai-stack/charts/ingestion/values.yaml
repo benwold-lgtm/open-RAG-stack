@@ -1,0 +1,44 @@
+image:
+  repository: ghcr.io/benwold-lgtm/ingestion
+  tag: latest
+  pullPolicy: Always
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: NodePort
+  port: 8002
+  nodePort: 30083
+
+qdrant:
+  url: "http://qdrant.qdrant.svc.cluster.local:6333"
+  secretName: qdrant-secrets
+
+embedding:
+  url: "http://embedding.embedding.svc.cluster.local:8001"
+
+config:
+  chunkSize: "256"
+  chunkOverlap: "25"
+  embeddingDim: "768"
+
+storage:
+  size: 5Gi
+  storageClassName: "nfs-client"
+
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "500m"
+  limits:
+    memory: "6Gi"
+    cpu: "2000m"
+watchDir:
+  enabled: false
+  hostPath: ""          # path on the node to watch, e.g. /mnt/your-share/rag-watch
+  mountPath: /mnt/watch
+  pollInterval: "60"
+
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>

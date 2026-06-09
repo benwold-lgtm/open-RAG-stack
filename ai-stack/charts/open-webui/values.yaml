@@ -1,0 +1,25 @@
+image:
+  repository: ghcr.io/open-webui/open-webui
+  tag: main
+  pullPolicy: Always
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+
+vllm:
+  baseUrl: "http://ai-agent.ai-agent.svc.cluster.local:8000/v1"   # update if routing through NodePort instead of cluster DNS
+  apiKey: "not-needed"
+
+auth:
+  enabled: false   # flip to true if you want login prompt on LAN
+
+storage:
+  size: 5Gi
+  storageClassName: "nfs-client"  # adjust to match your storageclass
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>

@@ -1,0 +1,377 @@
+# open-RAG-stack
+
+A self-hosted Retrieval-Augmented Generation (RAG) stack running on Kubernetes. Ingest your own documents, query them through a custom AI agent backed by a local LLM, and chat through Open-WebUI — entirely air-gapped if needed.
+
+## Architecture
+
+![open-RAG-stack architecture](docs/rag-architecture.drawio.png)
+
+<details>
+<summary>Text version of the diagram</summary>
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         User Interface                              │
+│                                                                     │
+│                    ┌──────────────────┐                             │
+│                    │   Open-WebUI     │  :30080                     │
+│                    │  (Chat UI)       │                             │
+│                    └────────┬─────────┘                             │
+│                             │ OpenAI-compatible API                 │
+└─────────────────────────────┼───────────────────────────────────────┘
+                              │
+┌─────────────────────────────┼───────────────────────────────────────┐
+│                        AI Agent Layer                               │
+│                             │                                       │
+│                    ┌────────▼─────────┐                             │
+│                    │    ai-agent      │  :30081                     │
+│                    │ (FastAPI / RAG)  │                             │
+│                    └──┬──────────┬───┘                             │
+│                       │          │                                  │
+│          ┌────────────▼──┐  ┌────▼──────────────┐                  │
+│          │  rag_search   │  │  web_search        │                  │
+│          │ (local docs)  │  │ (Brave/SearXNG/    │                  │
+│          └──────┬────────┘  │  Serper/Tavily)    │                  │
+│                 │           └────────────────────┘                  │
+│    ┌────────────▼──────────────────┐                                │
+│    │         vllm-server           │  :30000                        │
+│    │  (OpenAI-compatible LLM API)  │                                │
+│    │  any HuggingFace model        │                                │
+│    └───────────────────────────────┘                                │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────┼───────────────────────────────────────┐
+│                       Knowledge Base                                │
+│                             │                                       │
+│          ┌──────────────────▼──────────────────┐                   │
+│          │              qdrant                  │  :30333           │
+│          │         (Vector Database)            │                   │
+│          └──────────────────▲──────────────────┘                   │
+│                             │ vectors                               │
+│          ┌──────────────────┴──────────────────┐                   │
+│          │            embedding                 │  :30082           │
+│          │    (nomic-embed-text-v1.5)           │                   │
+│          └──────────────────▲──────────────────┘                   │
+│                             │ text chunks                           │
+│          ┌──────────────────┴──────────────────┐                   │
+│          │            ingestion                 │  :30083           │
+│          │   (URL scraper → chunker → embed)    │                   │
+│          └─────────────────────────────────────┘                   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+</details>
+
+### Request flow
+
+1. User sends a message in **Open-WebUI**
+2. Open-WebUI forwards it to **ai-agent** via the OpenAI-compatible `/v1/chat/completions` endpoint
+3. ai-agent decides which tool to call:
+   - `rag_search` — embeds the query, searches all Qdrant collections, returns the top-k chunks
+   - `web_search` — calls your configured web search provider (Brave, SearXNG, Serper, or Tavily)
+4. Tool results are injected back into the LLM context
+5. **vllm-server** generates the final response
+6. ai-agent returns the answer plus a `sources` list to Open-WebUI
+
+### Ingestion flow
+
+```
+URL or file  →  ingestion service  →  embedding service  →  Qdrant
+               (scrape + chunk)       (nomic-embed-text)   (vector store)
+```
+
+Use `scripts/link-scrape.sh` to ingest a URL, or POST directly to the ingestion API.
+
+---
+
+## Services
+
+| Service | Image | Port | Description |
+|---|---|---|---|
+| `open-webui` | `ghcr.io/open-webui/open-webui` | 30080 | Chat UI |
+| `ai-agent` | `ghcr.io/benwold-lgtm/ai-agent` | 30081 | RAG agent — calls vLLM + Qdrant |
+| `embedding` | `ghcr.io/benwold-lgtm/embedding` | 30082 | Embedding service (nomic-embed-text-v1.5) |
+| `ingestion` | `ghcr.io/benwold-lgtm/ingestion` | 30083 | Document ingestion pipeline |
+| `vllm-server` | `vllm/vllm-openai` | 30000 | LLM inference (OpenAI-compatible) |
+| `qdrant` | `qdrant/qdrant` | 30333 | Vector database |
+
+---
+
+## Prerequisites
+
+- Kubernetes cluster (tested on bare-metal k8s — kubeadm, k3s, or similar)
+- A GPU node with NVIDIA drivers and the [NVIDIA device plugin](https://github.com/NVIDIA/k8s-device-plugin) installed
+- NFS server for model storage (or adapt `ai-stack/charts/vllm-server/values.yaml` to use a different storage class)
+- `kubectl` and `helm` configured on your admin host
+- A [Hugging Face](https://huggingface.co/) account and access token for model download
+
+---
+
+## Quick start
+
+### 1. Configure values
+
+Edit each chart's `values.yaml` before deploying. At minimum:
+
+**`ai-stack/charts/vllm-server/values.yaml`**
+```yaml
+model:
+  name: "mistralai/Mistral-7B-Instruct-v0.3"   # or any HF model
+
+persistence:
+  nfsServer: "192.168.1.x"    # your NFS server IP
+  nfsPath: /your/nfs/export
+
+nodeSelector:
+  kubernetes.io/hostname: your-gpu-node
+```
+
+**`ai-stack/charts/ai-agent/values.yaml`**
+```yaml
+vllm:
+  baseUrl: "http://<gpu-node-ip>:30000/v1"
+  model: "mistralai/Mistral-7B-Instruct-v0.3"
+
+nodeSelector:
+  kubernetes.io/hostname: your-gpu-node
+```
+
+Repeat `nodeSelector` for `embedding`, `ingestion`, `qdrant`, and `open-webui` charts.
+
+### 2. Configure web search (optional)
+
+In `ai-stack/services/ai-agent/main.py`, uncomment your chosen provider in the **Web Search Provider** section. Options:
+
+- **Brave Search** — `BRAVE_API_KEY` env var, set via Kubernetes secret
+- **SearXNG** — self-hosted, no API key required; set `SEARXNG_URL`
+- **Serper** — `SERPER_API_KEY` env var
+- **Tavily** — `TAVILY_API_KEY` env var
+
+### 3. Bootstrap the cluster
+
+```bash
+# Set your environment
+export NODE_IP=192.168.1.x          # GPU node IP
+export NFS_SERVER=192.168.1.x       # NFS server IP
+
+# Run bootstrap: installs storage classes, creates namespaces + secrets,
+# then deploys every service with Helm.
+./scripts/bootstrap.sh
+```
+
+The bootstrap script will interactively prompt for:
+- `WEB_SEARCH_API_KEY` — leave blank if using SearXNG
+- `QDRANT_API_KEY` — any string you choose
+- `HF_TOKEN` — your Hugging Face access token
+- `ghcr-pull-secret` (optional) — only if your GHCR images are private
+
+### 3b. Configure vLLM for your model
+
+> **Important:** The default `vllm-server` chart is tuned for **Qwen3** on an **RTX 3090** with custom patches applied at startup. If you are running a different model or GPU, you will need to edit `ai-stack/charts/vllm-server/templates/deployment.yaml` to change or remove the vLLM command-line flags.
+>
+> Flags that are Qwen3/hardware-specific:
+> - `--reasoning-parser qwen3` — remove for non-Qwen3 models
+> - `--tool-call-parser qwen3_coder` — remove for non-Qwen3 models
+> - `--quantization auto_round` — only needed if using auto_round quantized weights
+> - `--kv-cache-dtype fp8_e5m2` — requires FP8 hardware (Ampere/Ada/Hopper); remove for older GPUs
+> - `--speculative-config '{"method":"mtp",...}'` — remove if your model/vLLM version doesn't support MTP
+>
+> The `initContainer` clones patch repos for a specific vLLM nightly build. For a standard deployment remove the `initContainers` block and the `patches` volume/volumeMount, and change the container command to `exec python3 -m vllm.entrypoints.openai.api_server ...` directly.
+>
+> A minimal vLLM command for a standard model on a standard GPU:
+> ```
+> python3 -m vllm.entrypoints.openai.api_server \
+>   --model <your-hf-model> \
+>   --download-dir /data \
+>   --gpu-memory-utilization 0.90 \
+>   --max-model-len 8192 \
+>   --enable-auto-tool-choice \
+>   --tool-call-parser hermes \
+>   --host 0.0.0.0 --port 8000
+> ```
+
+### 4. Deploy the services
+
+`bootstrap.sh` deploys everything for you on its final step. If you change a chart or a `values.yaml` later, re-deploy with the same idempotent Helm script:
+
+```bash
+./deploy/install.sh
+```
+
+This runs `helm upgrade --install` for each service into its namespace — no GitOps controller required, so it works on any Kubernetes cluster.
+
+**Using a GitOps tool instead?** The Helm charts under `ai-stack/charts/<service>/` are the deployable unit. Point ArgoCD, Flux, or Rancher Fleet at them and let your controller manage the rollout — you don't need `deploy/install.sh` in that case.
+
+---
+
+## Forking this repo
+
+If you fork this repo and want the CI to build and push images to your own GHCR namespace:
+
+1. Fork to your GitHub account.
+2. Create a GitHub PAT with `write:packages` scope.
+3. Add it as a repository secret named `GHCR_TOKEN` (Settings → Secrets and variables → Actions → New repository secret).
+4. Push a commit to `main` — the three `build-*.yml` workflows will build and push `ghcr.io/<your-username>/ai-agent`, `embedding`, and `ingestion`.
+5. Update `image.repository` in each chart's `values.yaml` to point to your GHCR namespace.
+
+**Making packages public (optional but simpler):** After the first CI run, go to each package on your GitHub profile → Change visibility → Public. This allows Kubernetes to pull without a pull secret.
+
+---
+
+## Ingesting documents
+
+Documents are grouped into **collections** and tagged with a **vendor**. The agent searches across all collections at query time. There are four ways to get content in.
+
+### 1. Scrape a single page or crawl a whole site
+
+```bash
+# Ingest a single URL
+./scripts/link-scrape.sh https://docs.example.com/page
+
+# Deep crawl — follows links to scrape an entire site
+# (prompts for max depth, max pages, and an optional URL-pattern filter)
+./scripts/link-scrape.sh https://docs.example.com --deep
+```
+
+### 2. Scrape many URLs at once (batch)
+
+POST a list of URLs to `/ingest/batch`. Each entry sets its own collection and vendor, so one call can populate multiple collections:
+
+```bash
+curl -X POST http://<your-gpu-node-ip>:30083/ingest/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "documents": [
+      {"url": "https://blogs.nvidia.com/blog/enterprise-reference-architectures/", "collection": "nvidia-ai-factory", "vendor": "NVIDIA"},
+      {"url": "https://docs.nvidia.com/enterprise-reference-architectures/index.html", "collection": "nvidia-ai-factory", "vendor": "NVIDIA"},
+      {"url": "https://www.dell.com/en-us/blog/how-dell-makes-the-ai-factory-real/", "collection": "dell-ai-factory", "vendor": "Dell"},
+      {"url": "https://www.dell.com/en-us/blog/securing-the-ai-factory/", "collection": "dell-ai-factory", "vendor": "Dell"}
+    ]
+  }'
+```
+
+`access_roles` (default `["all"]`) and `classification` (default `"public"`) can be set per document but are optional.
+
+### 3. Upload a file (PDF, txt, or md)
+
+```bash
+curl -X POST http://<your-gpu-node-ip>:30083/ingest/document \
+  -F "file=@./whitepaper.pdf" \
+  -F "collection=nvidia-ai-factory" \
+  -F "vendor=NVIDIA"
+```
+
+### 4. Drop files into a watch folder
+
+Enable `watchDir` in `ai-stack/charts/ingestion/values.yaml` and point `hostPath` at a directory on the node. Files placed in `<watchDir>/<vendor>/` are ingested automatically — the subfolder name becomes both the vendor tag and the collection. Processed files move to a `processed/` subfolder.
+
+### Interactive API (no UI required)
+
+The ingestion service is a FastAPI app, so it serves a browser-based Swagger UI at:
+
+```
+http://<your-gpu-node-ip>:30083/docs
+```
+
+From there you can fill in and POST to `/ingest/url`, `/ingest/batch`, `/ingest/deep`, and `/ingest/document` without writing curl by hand. (Open-WebUI is the chat front-end for *querying* — it does not handle ingestion.)
+
+### Check status and query
+
+```bash
+# List recent ingestion jobs (or pass a doc_id for detail)
+./scripts/ingest-status.sh
+
+# Query the agent from the CLI
+./scripts/rag-query.sh "What is an AI factory reference architecture?"
+```
+
+---
+
+## Repository structure
+
+```
+open-RAG-stack/
+├── .github/workflows/        # CI: build & push Docker images to ghcr.io
+├── ai-stack/
+│   ├── charts/               # Helm charts — one per service
+│   │   ├── ai-agent/
+│   │   ├── embedding/
+│   │   ├── ingestion/
+│   │   ├── open-webui/
+│   │   ├── qdrant/
+│   │   └── vllm-server/
+│   └── services/             # Python microservice source
+│       ├── ai-agent/         # RAG agent (FastAPI)
+│       ├── embedding/        # Embedding service (FastAPI)
+│       └── ingestion/        # Ingestion pipeline (FastAPI)
+├── deploy/                   # install.sh — Helm deploy/upgrade for all services
+├── docs/                     # Architecture diagram (.drawio source + .png)
+├── scripts/                  # Helper scripts — see Scripts reference below
+└── LICENSE                   # MIT
+```
+
+---
+
+## Scripts reference
+
+All scripts live in `scripts/` (except `install.sh`, which is in `deploy/`). The ingest/query/log scripts honour `NODE_IP`, `INGESTION_URL`, and `AI_AGENT_URL` environment variables so you can point them at your cluster without editing files.
+
+| Script | Purpose |
+|---|---|
+| `scripts/bootstrap.sh` | One-time setup: storage classes, namespaces, secrets, then deploys the stack |
+| `deploy/install.sh` | Deploy or upgrade all services via Helm (idempotent; re-run after editing charts/values) |
+| `scripts/RAG-startup.sh` | Scale the whole stack back to 1 replica (resume after shutdown) |
+| `scripts/RAG-shutdown.sh` | Scale the whole stack to 0 to free GPU and RAM (storage/secrets untouched) |
+| `scripts/status.sh` | Pod overview across all stack namespaces |
+| `scripts/link-scrape.sh` | Ingest a URL — single page or `--deep` site crawl |
+| `scripts/ingest-status.sh` | List recent ingestion jobs, or inspect one by `doc_id` |
+| `scripts/rag-query.sh` | Send a question to the agent from the CLI |
+| `scripts/ai-agent-log.sh` | Tail ai-agent logs |
+| `scripts/embedding-log.sh` | Tail embedding logs |
+| `scripts/ingestion-log.sh` | Tail ingestion logs |
+| `scripts/qdrant-log.sh` | Tail Qdrant logs |
+| `scripts/vllm-log.sh` | Tail vLLM server logs |
+
+---
+
+## Troubleshooting
+
+**vLLM pod stays in `Pending`**
+- Check that the NVIDIA device plugin is installed: `kubectl get pods -n kube-system | grep nvidia`
+- Verify the node has a GPU resource: `kubectl describe node <your-gpu-node> | grep nvidia.com/gpu`
+- Confirm `nodeSelector` in `vllm-server/values.yaml` matches the node's hostname exactly.
+
+**vLLM pod crashes on startup**
+- The default deployment includes Qwen3-specific flags. If you're using a different model, see [Configure vLLM for your model](#3b-configure-vllm-for-your-model).
+- Check logs: `kubectl logs -n ai-stack deploy/vllm-server --previous`
+- If the initContainer fails, check if the patch repos are reachable; or remove the initContainer entirely for a standard deployment.
+
+**NFS PVC stays in `Pending`**
+- Verify NFS server is reachable from the cluster: `nc -z <nfs-ip> 2049`
+- Confirm the export path exists on the NFS server.
+- Check nfs-subdir-external-provisioner logs: `kubectl logs -n kube-system -l app=nfs-subdir-external-provisioner`
+
+**Images fail to pull (`ErrImagePull` / `ImagePullBackOff`)**
+- GHCR packages are private by default. Either make them public (see [Forking this repo](#forking-this-repo)) or run bootstrap.sh and choose `y` when prompted to create `ghcr-pull-secret`.
+
+**Qdrant pod has no API key / RAG queries return 401**
+- Confirm `qdrant-secrets` exists in the `qdrant` namespace: `kubectl get secret qdrant-secrets -n qdrant`
+- If missing, run bootstrap.sh again — it skips existing secrets so re-running is safe.
+
+**Open-WebUI shows no models**
+- Confirm ai-agent is running: `kubectl get pods -n ai-agent`
+- Check the `vllm.baseUrl` in `open-webui/values.yaml` points to ai-agent's cluster DNS, not directly to vLLM.
+- Open-WebUI has no login by default (`auth.enabled: false` in values.yaml). Set to `true` before exposing to the internet.
+
+---
+
+## Secrets reference
+
+All secrets are created by `scripts/bootstrap.sh` and stored in Kubernetes — nothing is committed to the repo.
+
+| Secret name | Namespace | Keys | Purpose |
+|---|---|---|---|
+| `ai-agent-secrets` | `ai-agent` | `BRAVE_API_KEY`, `QDRANT_API_KEY` | Web search + Qdrant auth for ai-agent |
+| `qdrant-secrets` | `qdrant` | `QDRANT_API_KEY` | Qdrant API key |
+| `hf-token-secret` | `ai-stack` | `token` | Hugging Face token for vLLM model download |
+| `ghcr-pull-secret` | `ingestion` | Docker config | Pull custom images from ghcr.io |

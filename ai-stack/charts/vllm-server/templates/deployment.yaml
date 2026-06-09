@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-server
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      hostIPC: true
+      nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "sku"
+          operator: "Equal"
+          value: "gpu"
+          effect: "NoSchedule"
+      initContainers:
+        - name: fetch-patches
+          image: alpine/git:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              git clone --depth 1 {{ .Values.patches.genesisRepo }} /patches/genesis
+              git clone --depth 1 {{ .Values.patches.recipeRepo }} /tmp/recipe
+              cp /tmp/recipe/patches/patch_tolist_cudagraph.py /patches/
+          volumeMounts:
+            - name: patches
+              mountPath: /patches
+      containers:
+        - name: vllm-container
+          image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag }}{{ end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              pip install xxhash -q
+              VLLM_PATH=$(python3 -c "import vllm, os; print(os.path.dirname(vllm.__file__))")
+              cp -r /patches/genesis/vllm/_genesis "${VLLM_PATH}/_genesis"
+              python3 -m vllm._genesis.patches.apply_all
+              python3 /patches/patch_tolist_cudagraph.py
+              exec python3 -m vllm.entrypoints.openai.api_server \
+                --model {{ .Values.model.name }} \
+                --download-dir {{ .Values.model.downloadDir }} \
+                --quantization auto_round \
+                --dtype float16 \
+                --tensor-parallel-size 1 \
+                --max-model-len {{ .Values.server.maxModelLen }} \
+                --gpu-memory-utilization {{ .Values.server.gpuMemoryUtilization }} \
+                --max-num-seqs {{ .Values.server.maxNumSeqs }} \
+                --max-num-batched-tokens {{ .Values.server.maxNumBatchedTokens }} \
+                --kv-cache-dtype fp8_e5m2 \
+                --trust-remote-code \
+                --reasoning-parser qwen3 \
+                --enable-auto-tool-choice \
+                --tool-call-parser qwen3_coder \
+                --enable-prefix-caching \
+                --enable-chunked-prefill \
+                --no-scheduler-reserve-full-isl \
+                --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
+                --host 0.0.0.0 \
+                --port {{ .Values.service.port }}
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token-secret
+                  key: token
+            {{- range .Values.env.extra }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          volumeMounts:
+            - name: data-vol
+              mountPath: {{ .Values.model.downloadDir }}
+            - name: shm
+              mountPath: /dev/shm
+            - name: patches
+              mountPath: /patches
+          resources: {{ toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data-vol
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.pvcName }}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.shm.sizeLimit }}
+        - name: patches
+          emptyDir: {}

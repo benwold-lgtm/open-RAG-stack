@@ -1,0 +1,25 @@
+image:
+  repository: ghcr.io/benwold-lgtm/embedding
+  tag: latest
+  pullPolicy: Always
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: NodePort
+  port: 8001
+  nodePort: 30082
+
+model:
+  name: "nomic-ai/nomic-embed-text-v1.5"
+
+resources:
+  requests:
+    memory: "4Gi"
+    cpu: "2000m"
+  limits:
+    memory: "24Gi"
+    cpu: "8000m"
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>
