@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/embedding
+  IMAGE_NAME: ${{ github.repository_owner }}/open-rag-embedding
 
 jobs:
   build-and-push:

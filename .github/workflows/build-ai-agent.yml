@@ -10,7 +10,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/ai-agent
+  IMAGE_NAME: ${{ github.repository_owner }}/open-rag-ai-agent
 
 jobs:
   build-and-push:

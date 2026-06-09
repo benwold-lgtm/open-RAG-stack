@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/benwold-lgtm/ingestion
+  repository: ghcr.io/benwold-lgtm/open-rag-ingestion
   tag: latest
   pullPolicy: Always
 

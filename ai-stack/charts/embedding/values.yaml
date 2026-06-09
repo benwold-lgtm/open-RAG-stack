@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/benwold-lgtm/embedding
+  repository: ghcr.io/benwold-lgtm/open-rag-embedding
   tag: latest
   pullPolicy: Always
 
