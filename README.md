@@ -1,6 +1,28 @@
 # open-RAG-stack
 
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)
+![Kubernetes 1.24+](https://img.shields.io/badge/Kubernetes-1.24%2B-blue)
+
 A self-hosted Retrieval-Augmented Generation (RAG) stack running on Kubernetes. Ingest your own documents, query them through a custom AI agent backed by a local LLM, and chat through Open-WebUI — entirely air-gapped if needed.
+
+## Why this stack?
+
+- **Fully self-hosted** — every component (LLM, embeddings, vector DB, agent, UI) runs in your cluster. No data leaves your network; it can run air-gapped.
+- **Modular** — swap the LLM, embedding model, or web-search provider by editing `values.yaml` and one config block. Nothing is hardwired to a vendor.
+- **Deploys anywhere** — plain Helm (`deploy/install.sh`) stands the whole stack up on any Kubernetes cluster. No GitOps controller required, though you can point one at the charts if you prefer.
+
+## Quick start at a glance
+
+```bash
+export NODE_IP=<your-gpu-node-ip>
+./scripts/bootstrap.sh                                # interactive: prompts for secrets, then deploys via Helm
+# wait for pods — vLLM takes a few minutes to load the model (watch: kubectl get pods -A -w)
+./scripts/link-scrape.sh https://docs.anthropic.com   # then answer the collection/vendor prompts
+./scripts/rag-query.sh "What is Claude?"
+```
+
+See [Quick start](#quick-start) below for the full, step-by-step version (model selection, web search, storage).
 
 ## Architecture
 
@@ -104,6 +126,21 @@ Use `scripts/link-scrape.sh` to ingest a URL, or POST directly to the ingestion 
 - NFS server for model storage (or adapt `ai-stack/charts/vllm-server/values.yaml` to use a different storage class)
 - `kubectl` and `helm` configured on your admin host
 - A [Hugging Face](https://huggingface.co/) account and access token for model download
+
+### Resource expectations
+
+These are the defaults baked into the charts — tune them in each `values.yaml` for your hardware.
+
+| Component | GPU | CPU (req/limit) | RAM (req/limit) | Storage |
+|---|---|---|---|---|
+| vLLM server | 1 × 24 GB GPU (RTX 3090/4090-class); `0.97` GPU-mem util | 4 / 8 | 16 Gi / 32 Gi (+16 Gi shared mem) | model weights on NFS (10–30 GB+ per model) |
+| embedding | optional (uses GPU if present, else CPU) | 2 / 8 | 4 Gi / 24 Gi | — |
+| qdrant | — | 0.25 / 1 | 0.5 Gi / 2 Gi | 50 Gi (local-path) |
+| ingestion | — | 0.5 / 2 | 1 Gi / 6 Gi | 5 Gi (NFS) |
+| open-webui | — | — | — | 5 Gi (NFS) |
+| ai-agent | — | 0.25 / 0.5 | 0.25 Gi / 0.5 Gi | — |
+
+In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM** of headroom, and an **NFS share** for model weights runs the whole AI stack comfortably. The control-plane/worker VMs that host Qdrant, ingestion, and Open-WebUI are lightweight by comparison.
 
 ---
 
@@ -360,6 +397,14 @@ All scripts live in `scripts/` (except `install.sh`, which is in `deploy/`). The
 - Confirm ai-agent is running: `kubectl get pods -n ai-agent`
 - Check the `vllm.baseUrl` in `open-webui/values.yaml` points to ai-agent's cluster DNS, not directly to vLLM.
 - Open-WebUI has no login by default (`auth.enabled: false` in values.yaml). Set to `true` before exposing to the internet.
+
+### Common gotchas
+
+- **Embedding dimension must match the model.** `ingestion` `embeddingDim` defaults to `768` for `nomic-embed-text-v1.5`. If you swap the embedding model, update `embeddingDim` to the new model's dimension *and re-ingest* — a mismatch makes every search silently return nothing.
+- **NodePorts must be unique.** Check the [NodePort table](#services) before adding a service; a duplicate port makes the new Service fail to create.
+- **vLLM flags are model-specific.** The defaults are tuned for Qwen3 on an RTX 3090. For any other model see [Configure vLLM for your model](#3b-configure-vllm-for-your-model) — leaving Qwen3 parsers in place will break tool calling on other models.
+- **Collection and vendor names are case-sensitive.** `Cisco` and `cisco` are different collections; keep them consistent between ingestion and querying.
+- **`pullPolicy: Always` + private images.** If your `open-rag-*` packages are private, pods will `ImagePullBackOff` until you add `ghcr-pull-secret` or make the packages public.
 
 ---
 
