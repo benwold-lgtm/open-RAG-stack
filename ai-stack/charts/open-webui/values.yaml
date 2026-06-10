@@ -16,10 +16,10 @@ vllm:
   apiKey: "not-needed"
 
 auth:
-  enabled: false   # flip to true if you want login prompt on LAN
+  enabled: true    # disable only on a fully trusted, isolated network
 
 storage:
   size: 5Gi
-  storageClassName: "nfs-client"  # adjust to match your storageclass
+  storageClassName: "local-path"
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>

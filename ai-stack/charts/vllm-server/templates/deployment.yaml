@@ -23,6 +23,7 @@ spec:
           operator: "Equal"
           value: "gpu"
           effect: "NoSchedule"
+      {{- if .Values.patches.enabled }}
       initContainers:
         - name: fetch-patches
           image: alpine/git:latest
@@ -36,10 +37,16 @@ spec:
           volumeMounts:
             - name: patches
               mountPath: /patches
+      {{- end }}
       containers:
         - name: vllm-container
-          image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag }}{{ end }}"
+          {{- if .Values.patches.enabled }}
+          image: "{{ .Values.image.repository }}@{{ .Values.patches.imageDigest }}"
+          {{- else }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.patches.enabled }}
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -52,24 +59,54 @@ spec:
               exec python3 -m vllm.entrypoints.openai.api_server \
                 --model {{ .Values.model.name }} \
                 --download-dir {{ .Values.model.downloadDir }} \
-                --quantization auto_round \
-                --dtype float16 \
+                --quantization {{ .Values.patches.quantization }} \
+                --dtype {{ .Values.patches.dtype }} \
                 --tensor-parallel-size 1 \
                 --max-model-len {{ .Values.server.maxModelLen }} \
                 --gpu-memory-utilization {{ .Values.server.gpuMemoryUtilization }} \
                 --max-num-seqs {{ .Values.server.maxNumSeqs }} \
                 --max-num-batched-tokens {{ .Values.server.maxNumBatchedTokens }} \
-                --kv-cache-dtype fp8_e5m2 \
+                --kv-cache-dtype {{ .Values.patches.kvCacheDtype }} \
                 --trust-remote-code \
-                --reasoning-parser qwen3 \
+                --reasoning-parser {{ .Values.patches.reasoningParser }} \
                 --enable-auto-tool-choice \
-                --tool-call-parser qwen3_coder \
+                --tool-call-parser {{ .Values.patches.toolCallParser }} \
                 --enable-prefix-caching \
                 --enable-chunked-prefill \
                 --no-scheduler-reserve-full-isl \
-                --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
+                --speculative-config '{{ .Values.patches.speculativeConfig }}' \
                 --host 0.0.0.0 \
                 --port {{ .Values.service.port }}
+          {{- else }}
+          command: ["python3"]
+          args:
+            - -m
+            - vllm.entrypoints.openai.api_server
+            - --model
+            - {{ .Values.model.name | quote }}
+            - --download-dir
+            - {{ .Values.model.downloadDir | quote }}
+            - --max-model-len
+            - {{ .Values.server.maxModelLen | quote }}
+            - --gpu-memory-utilization
+            - {{ .Values.server.gpuMemoryUtilization | quote }}
+            - --max-num-seqs
+            - {{ .Values.server.maxNumSeqs | quote }}
+            - --max-num-batched-tokens
+            - {{ .Values.server.maxNumBatchedTokens | quote }}
+            - --tensor-parallel-size
+            - "1"
+            - --trust-remote-code
+            - --enable-prefix-caching
+            - --enable-chunked-prefill
+            {{- range .Values.server.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+            - --host
+            - "0.0.0.0"
+            - --port
+            - {{ .Values.service.port | quote }}
+          {{- end }}
           env:
             - name: HF_TOKEN
               valueFrom:
@@ -87,8 +124,10 @@ spec:
               mountPath: {{ .Values.model.downloadDir }}
             - name: shm
               mountPath: /dev/shm
+            {{- if .Values.patches.enabled }}
             - name: patches
               mountPath: /patches
+            {{- end }}
           resources: {{ toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: data-vol
@@ -98,5 +137,7 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.shm.sizeLimit }}
+        {{- if .Values.patches.enabled }}
         - name: patches
           emptyDir: {}
+        {{- end }}

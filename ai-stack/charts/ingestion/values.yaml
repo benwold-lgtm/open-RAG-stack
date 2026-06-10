@@ -25,7 +25,7 @@ config:
 
 storage:
   size: 5Gi
-  storageClassName: "nfs-client"
+  storageClassName: "local-path"
 
 resources:
   requests:

@@ -3,21 +3,19 @@ revisionHistoryLimit: 3
 
 image:
   repository: vllm/vllm-openai
-  tag: nightly
-  # Pin to the Genesis-v7.14-compatible nightly (0.19.2rc1.dev21+g893611813, 2026-04-20).
-  # Clear this to float on :nightly again once Genesis patches track the current nightly.
-  digest: "sha256:9bba4628a3b943e0dd33caefb94b811569ba1e97bdf23bee19a265c31b947ccb"
+  tag: latest
   pullPolicy: Always
 
 model:
-  name: ""             # HuggingFace model ID, e.g. "mistralai/Mistral-7B-Instruct-v0.3"
+  name: ""            # Required: HuggingFace model ID, e.g. "mistralai/Mistral-7B-Instruct-v0.3"
   downloadDir: "/data"
 
 server:
-  maxModelLen: 20000
-  gpuMemoryUtilization: "0.97"
-  maxNumSeqs: 1
-  maxNumBatchedTokens: 4128
+  maxModelLen: 8192
+  gpuMemoryUtilization: "0.90"
+  maxNumSeqs: 4
+  maxNumBatchedTokens: 8192
+  extraArgs: []       # additional vLLM flags, e.g. ["--dtype", "float16"]
 
 resources:
   limits:
@@ -38,30 +36,29 @@ service:
   nodePort: 30000
 
 persistence:
-  pvcName: vllm-models-nfs-pvc
-  nfsServer: ""        # IP or hostname of your NFS server
-  nfsPath: /NFS_K8S_PV
+  size: 500Gi
+  storageClassName: "local-path"
+  pvcName: vllm-models-pvc
 
 shm:
   sizeLimit: 16Gi
 
+env:
+  extra: []  # model-specific env vars, e.g. [{name: VLLM_ALLOW_LONG_MAX_MODEL_LEN, value: "1"}]
+
+# ── Qwen3 advanced patches ──────────────────────────────────────────────────
+# Only set enabled: true if you are running Qwen3 on a single RTX 3090 and
+# need the Genesis memory patches + MTP speculative decoding.
+# Leave disabled for all other models (Mistral, Llama, Gemma, Phi, Qwen2, etc.)
 patches:
+  enabled: false
   genesisRepo: "https://github.com/Sandermage/genesis-vllm-patches.git"
   recipeRepo: "https://github.com/noonghunna/qwen36-27b-single-3090.git"
-
-env:
-  extra:
-    - name: VLLM_WORKER_MULTIPROC_METHOD
-      value: "spawn"
-    - name: NCCL_P2P_DISABLE
-      value: "1"
-    - name: VLLM_USE_FLASHINFER_SAMPLER
-      value: "1"
-    - name: VLLM_ALLOW_LONG_MAX_MODEL_LEN
-      value: "1"
-    - name: VLLM_MARLIN_USE_ATOMIC_ADD
-      value: "1"
-    - name: PYTORCH_CUDA_ALLOC_CONF
-      value: "expandable_segments:True,max_split_size_mb:512"
-    - name: CUDA_DEVICE_MAX_CONNECTIONS
-      value: "8"
+  # Pin to the Genesis-v7.14-compatible nightly — clear if floating on :latest again
+  imageDigest: "sha256:9bba4628a3b943e0dd33caefb94b811569ba1e97bdf23bee19a265c31b947ccb"
+  quantization: "auto_round"
+  dtype: "float16"
+  kvCacheDtype: "fp8_e5m2"
+  reasoningParser: "qwen3"
+  toolCallParser: "qwen3_coder"
+  speculativeConfig: '{"method":"mtp","num_speculative_tokens":3}'

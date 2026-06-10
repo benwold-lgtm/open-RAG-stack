@@ -12,11 +12,28 @@ A self-hosted Retrieval-Augmented Generation (RAG) stack running on Kubernetes. 
 - **Modular** — swap the LLM, embedding model, or web-search provider by editing `values.yaml` and one config block. Nothing is hardwired to a vendor.
 - **Deploys anywhere** — plain Helm (`deploy/install.sh`) stands the whole stack up on any Kubernetes cluster. No GitOps controller required, though you can point one at the charts if you prefer.
 
+### Cost comparison
+
+Cloud AI APIs bill per token and per seat. A small team using document search and internal Q&A accumulates costs quickly:
+
+| Capability | Hosted service | Typical cost | open-RAG-stack |
+|---|---|---|---|
+| LLM inference | OpenAI GPT-4o | ~$5–$15/1M tokens | Local vLLM — $0/token after hardware |
+| Vector database | Pinecone Starter | ~$70/month | Qdrant self-hosted — free |
+| Document ingestion | Azure AI Document Intelligence | ~$0.01/page | Self-hosted — free |
+| Chat UI | ChatGPT Team | ~$25/user/month | Open-WebUI self-hosted — free |
+| Data privacy | Hosted APIs process your data on vendor infrastructure | Compliance risk | Air-gapped — your data never leaves |
+
+**Hardware cost:** a single used RTX 3090 (24 GB VRAM) runs 7B–14B parameter models comfortably and is typically available for $600–$900. At $200–$500/month in avoided API costs, it pays for itself in a few months — and the inference cost per query is effectively zero thereafter.
+
+> This stack is not a replacement for managed services in every scenario. If you need guaranteed SLAs, global scale, or have no GPU hardware, a managed API is likely the right call. But for a small-to-medium team processing internal documents on predictable workloads, self-hosted is often the better economic choice.
+
 ## Quick start at a glance
 
 ```bash
 export NODE_IP=<your-gpu-node-ip>
-./scripts/bootstrap.sh                                # interactive: prompts for secrets, then deploys via Helm
+./scripts/prereq-check.sh --gpu-node <your-node-hostname>  # validate cluster, GPU, storage, egress
+./scripts/bootstrap.sh                                     # interactive: prompts for secrets, then deploys via Helm
 # wait for pods — vLLM takes a few minutes to load the model (watch: kubectl get pods -A -w)
 ./scripts/link-scrape.sh https://docs.anthropic.com   # then answer the collection/vendor prompts
 ./scripts/rag-query.sh "What is Claude?"
@@ -121,9 +138,9 @@ Use `scripts/link-scrape.sh` to ingest a URL, or POST directly to the ingestion 
 
 ## Prerequisites
 
-- Kubernetes cluster (tested on bare-metal k8s — kubeadm, k3s, or similar)
+- Kubernetes cluster (tested on bare-metal k8s — kubeadm, k3s, or similar; k3s includes `local-path` out of the box)
 - A GPU node with NVIDIA drivers and the [NVIDIA device plugin](https://github.com/NVIDIA/k8s-device-plugin) installed
-- NFS server for model storage (or adapt `ai-stack/charts/vllm-server/values.yaml` to use a different storage class)
+- Sufficient local disk on the GPU node for model weights (10–30 GB per model; 500 Gi allocated by default)
 - `kubectl` and `helm` configured on your admin host
 - A [Hugging Face](https://huggingface.co/) account and access token for model download
 
@@ -133,14 +150,14 @@ These are the defaults baked into the charts — tune them in each `values.yaml`
 
 | Component | GPU | CPU (req/limit) | RAM (req/limit) | Storage |
 |---|---|---|---|---|
-| vLLM server | 1 × 24 GB GPU (RTX 3090/4090-class); `0.97` GPU-mem util | 4 / 8 | 16 Gi / 32 Gi (+16 Gi shared mem) | model weights on NFS (10–30 GB+ per model) |
+| vLLM server | 1 × 24 GB GPU (RTX 3090/4090-class); `0.90` GPU-mem util | 4 / 8 | 16 Gi / 32 Gi (+16 Gi shared mem) | 500 Gi local-path (model weights) |
 | embedding | optional (uses GPU if present, else CPU) | 2 / 8 | 4 Gi / 24 Gi | — |
-| qdrant | — | 0.25 / 1 | 0.5 Gi / 2 Gi | 50 Gi (local-path) |
-| ingestion | — | 0.5 / 2 | 1 Gi / 6 Gi | 5 Gi (NFS) |
-| open-webui | — | — | — | 5 Gi (NFS) |
+| qdrant | — | 0.25 / 1 | 0.5 Gi / 2 Gi | 50 Gi local-path |
+| ingestion | — | 0.5 / 2 | 1 Gi / 6 Gi | 5 Gi local-path |
+| open-webui | — | — | — | 5 Gi local-path |
 | ai-agent | — | 0.25 / 0.5 | 0.25 Gi / 0.5 Gi | — |
 
-In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM** of headroom, and an **NFS share** for model weights runs the whole AI stack comfortably. The control-plane/worker VMs that host Qdrant, ingestion, and Open-WebUI are lightweight by comparison.
+In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM**, and ~**560 Gi free local disk** runs the whole AI stack. All persistent storage uses the `local-path` provisioner — no NFS or external storage required. The control-plane/worker VMs that host Qdrant, ingestion, and Open-WebUI are lightweight by comparison.
 
 ---
 
@@ -152,7 +169,7 @@ A few decisions to make up front — each maps to a value you'll set during conf
 - **Embedding model** — defaults to `nomic-embed-text-v1.5` (768 dims). If you change it, update `ingestion` `embeddingDim` to match.
 - **Web search provider** — pick one (Brave, SearXNG, Serper, Tavily) or none. All but SearXNG need an API key; RAG search over your own documents works without any.
 - **Vector DB API key** — you choose the `QDRANT_API_KEY` value at bootstrap (any string).
-- **Storage** — an NFS server (model weights + ingestion/Open-WebUI data) and a `local-path` StorageClass for Qdrant.
+- **Storage** — local disk on the GPU node. All charts use the `local-path` StorageClass (installed by bootstrap if not present). No NFS required.
 - **GPU node + access IP** — the node hostname for `nodeSelector`, and its IP (`NODE_IP`) for NodePort access.
 - **Container images** — use the project's published `open-rag-*` images, or fork and let CI build your own.
 
@@ -167,11 +184,7 @@ Edit each chart's `values.yaml` before deploying. At minimum:
 **`ai-stack/charts/vllm-server/values.yaml`**
 ```yaml
 model:
-  name: "mistralai/Mistral-7B-Instruct-v0.3"   # or any HF model
-
-persistence:
-  nfsServer: "192.168.1.x"    # your NFS server IP
-  nfsPath: /your/nfs/export
+  name: "mistralai/Mistral-7B-Instruct-v0.3"   # or any HF model on Hugging Face
 
 nodeSelector:
   kubernetes.io/hostname: your-gpu-node
@@ -203,9 +216,8 @@ In `ai-stack/services/ai-agent/main.py`, uncomment your chosen provider in the *
 ```bash
 # Set your environment
 export NODE_IP=192.168.1.x          # GPU node IP
-export NFS_SERVER=192.168.1.x       # NFS server IP
 
-# Run bootstrap: installs storage classes, creates namespaces + secrets,
+# Run bootstrap: installs local-path-provisioner, creates namespaces + secrets,
 # then deploys every service with Helm.
 ./scripts/bootstrap.sh
 ```
@@ -216,30 +228,16 @@ The bootstrap script will interactively prompt for:
 - `HF_TOKEN` — your Hugging Face access token
 - `ghcr-pull-secret` (optional) — only if your GHCR images are private
 
-### 3b. Configure vLLM for your model
+### 3b. Qwen3 advanced mode (optional)
 
-> **Important:** The default `vllm-server` chart is tuned for **Qwen3** on an **RTX 3090** with custom patches applied at startup. If you are running a different model or GPU, you will need to edit `ai-stack/charts/vllm-server/templates/deployment.yaml` to change or remove the vLLM command-line flags.
->
-> Flags that are Qwen3/hardware-specific:
-> - `--reasoning-parser qwen3` — remove for non-Qwen3 models
-> - `--tool-call-parser qwen3_coder` — remove for non-Qwen3 models
-> - `--quantization auto_round` — only needed if using auto_round quantized weights
-> - `--kv-cache-dtype fp8_e5m2` — requires FP8 hardware (Ampere/Ada/Hopper); remove for older GPUs
-> - `--speculative-config '{"method":"mtp",...}'` — remove if your model/vLLM version doesn't support MTP
->
-> The `initContainer` clones patch repos for a specific vLLM nightly build. For a standard deployment remove the `initContainers` block and the `patches` volume/volumeMount, and change the container command to `exec python3 -m vllm.entrypoints.openai.api_server ...` directly.
->
-> A minimal vLLM command for a standard model on a standard GPU:
-> ```
-> python3 -m vllm.entrypoints.openai.api_server \
->   --model <your-hf-model> \
->   --download-dir /data \
->   --gpu-memory-utilization 0.90 \
->   --max-model-len 8192 \
->   --enable-auto-tool-choice \
->   --tool-call-parser hermes \
->   --host 0.0.0.0 --port 8000
-> ```
+The default vLLM deployment runs any standard HuggingFace model cleanly. If you are running **Qwen3 on a single RTX 3090** and want to enable MTP speculative decoding + Genesis memory patches, flip the opt-in flag in `ai-stack/charts/vllm-server/values.yaml`:
+
+```yaml
+patches:
+  enabled: true
+```
+
+This adds an `initContainer` that clones the Genesis and recipe patch repos, pins to a tested nightly image digest, and applies Qwen3-specific flags (`--reasoning-parser qwen3`, `--quantization auto_round`, `--kv-cache-dtype fp8_e5m2`, etc.). Leave `enabled: false` for all other models.
 
 ### 4. Deploy the services
 
@@ -367,6 +365,7 @@ All scripts live in `scripts/` (except `install.sh`, which is in `deploy/`). The
 
 | Script | Purpose |
 |---|---|
+| `scripts/prereq-check.sh` | Validate prerequisites before bootstrap (cluster, GPU, storage, egress) |
 | `scripts/bootstrap.sh` | One-time setup: storage classes, namespaces, secrets, then deploys the stack |
 | `deploy/install.sh` | Deploy or upgrade all services via Helm (idempotent; re-run after editing charts/values) |
 | `scripts/RAG-startup.sh` | Scale the whole stack back to 1 replica (resume after shutdown) |
@@ -383,6 +382,73 @@ All scripts live in `scripts/` (except `install.sh`, which is in `deploy/`). The
 
 ---
 
+## Hardening for production use
+
+The defaults in this repo are designed for getting started quickly. Before putting this stack in front of employees or on a network that isn't fully trusted, consider the following.
+
+### Authentication
+
+Open-WebUI ships with `auth.enabled: true` by default. The first user to register becomes the admin. Subsequent users require admin approval. Do not disable auth on any network where the NodePort is reachable by untrusted devices.
+
+### Network isolation (NetworkPolicies)
+
+By default, every pod can reach every other pod in the cluster. For a business deployment, lock down inter-service traffic to only the paths that are needed:
+
+```bash
+# Deny all ingress by default in each namespace, then allow only required paths.
+# Apply this pattern to each namespace (example for the qdrant namespace):
+kubectl apply -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: qdrant
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-ai-agent
+  namespace: qdrant
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ai-agent
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingestion
+EOF
+```
+
+Repeat the `default-deny-ingress` pattern for all namespaces (`ai-agent`, `embedding`, `ingestion`, `ai-stack`, `open-webui`), then add explicit `allow-from-*` policies for each required connection. Refer to the [Architecture](#architecture) diagram for the exact call paths.
+
+### Pod security
+
+Add a `securityContext` to each deployment to prevent pods from running as root:
+
+```yaml
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+```
+
+This can be added to the `spec.template.spec` section of each chart's `templates/deployment.yaml`.
+
+### Secrets at rest
+
+The bootstrap script creates plain Kubernetes Secrets (base64-encoded, not encrypted). If your cluster does not have [encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) enabled, consider using an external secrets manager (Vault, AWS Secrets Manager, Azure Key Vault) via the [External Secrets Operator](https://external-secrets.io/).
+
+---
+
 ## Troubleshooting
 
 **vLLM pod stays in `Pending`**
@@ -391,14 +457,15 @@ All scripts live in `scripts/` (except `install.sh`, which is in `deploy/`). The
 - Confirm `nodeSelector` in `vllm-server/values.yaml` matches the node's hostname exactly.
 
 **vLLM pod crashes on startup**
-- The default deployment includes Qwen3-specific flags. If you're using a different model, see [Configure vLLM for your model](#3b-configure-vllm-for-your-model).
 - Check logs: `kubectl logs -n ai-stack deploy/vllm-server --previous`
-- If the initContainer fails, check if the patch repos are reachable; or remove the initContainer entirely for a standard deployment.
+- If you have `patches.enabled: true`, confirm the patch repos are reachable from your cluster (requires internet egress).
+- For a standard model (Mistral, Llama, etc.) leave `patches.enabled: false` — the clean startup path is the default.
 
-**NFS PVC stays in `Pending`**
-- Verify NFS server is reachable from the cluster: `nc -z <nfs-ip> 2049`
-- Confirm the export path exists on the NFS server.
-- Check nfs-subdir-external-provisioner logs: `kubectl logs -n kube-system -l app=nfs-subdir-external-provisioner`
+**PVC stays in `Pending`**
+- Confirm `local-path` StorageClass is installed: `kubectl get storageclass local-path`
+- If missing, run: `kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml`
+- Check provisioner logs: `kubectl logs -n local-path-storage -l app=local-path-provisioner`
+- Confirm the node has enough free disk space: `df -h` on the GPU node. The vLLM PVC requests 500 Gi by default.
 
 **Images fail to pull (`ErrImagePull` / `ImagePullBackOff`)**
 - GHCR packages are private by default. Either make them public (see [Forking this repo](#forking-this-repo)) or run bootstrap.sh and choose `y` when prompted to create `ghcr-pull-secret`.

@@ -15,13 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-# Set these to match your environment before running.
+# Set this to match your environment before running.
 NODE_IP="${NODE_IP:-<your-gpu-node-ip>}"   # IP of the node running AI workloads
-NFS_SERVER="${NFS_SERVER:-<your-nfs-server-ip>}"
-# Both nfs-client PVCs (ingestion, open-webui) and the vLLM static PV share this
-# export. nfs-subdir-external-provisioner creates subdirectories within it, so
-# there is no conflict with the vLLM models stored at the root.
-NFS_PATH="${NFS_PATH:-/NFS_K8S_PV}"
 
 LOCAL_PATH_MANIFEST="https://raw.githubusercontent.com/rancher/local-path-provisioner/master/deploy/local-path-storage.yaml"
 
@@ -38,14 +33,6 @@ done
 kubectl cluster-info &>/dev/null || die "Cannot reach cluster — check kubeconfig"
 ok "Cluster reachable"
 
-# NFS server reachability (port 2049)
-info "Checking NFS server reachability (${NFS_SERVER})..."
-if nc -z -w5 "${NFS_SERVER}" 2049 2>/dev/null; then
-  ok "NFS server reachable"
-else
-  warn "NFS server ${NFS_SERVER}:2049 unreachable — vLLM and ingestion PVCs will fail to bind"
-fi
-
 # NVIDIA device plugin (required for vLLM GPU scheduling)
 if kubectl get daemonset nvidia-device-plugin-daemonset -n kube-system &>/dev/null; then
   ok "NVIDIA device plugin found"
@@ -54,31 +41,13 @@ else
   warn "  Install: https://github.com/NVIDIA/k8s-device-plugin"
 fi
 
-# ── Storage: local-path-provisioner (used by qdrant) ───────────────────────────
+# ── Storage: local-path-provisioner (all PVCs — Qdrant, ingestion, open-webui, vLLM) ──
 if kubectl get storageclass local-path &>/dev/null; then
   warn "StorageClass 'local-path' already exists — skipping"
 else
   info "Installing local-path-provisioner..."
   kubectl apply -f "$LOCAL_PATH_MANIFEST"
   ok "local-path-provisioner installed"
-fi
-
-# ── Storage: nfs-subdir-external-provisioner (used by ingestion, open-webui) ───
-if kubectl get storageclass nfs-client &>/dev/null; then
-  warn "StorageClass 'nfs-client' already exists — skipping"
-else
-  info "Adding nfs-subdir-external-provisioner Helm repo..."
-  helm repo add nfs-subdir-external-provisioner \
-    https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/ --force-update
-  info "Installing nfs-client StorageClass (NFS ${NFS_SERVER}:${NFS_PATH})..."
-  helm install nfs-subdir-external-provisioner \
-    nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
-    --namespace kube-system \
-    --set nfs.server="${NFS_SERVER}" \
-    --set nfs.path="${NFS_PATH}" \
-    --set storageClass.name=nfs-client \
-    --set storageClass.reclaimPolicy=Retain
-  ok "nfs-client StorageClass installed"
 fi
 
 # ── Namespaces ─────────────────────────────────────────────────────────────────

@@ -1,13 +1,12 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: vllm-models-nfs-pvc  # Matching the name used in your deployment.yaml
+  name: {{ .Values.persistence.pvcName }}
   namespace: ai-stack
 spec:
   accessModes:
-    - ReadWriteMany          # Must match the PV
-  storageClassName: ""       # Must be empty to bind to a static PV
+    - ReadWriteOnce
+  storageClassName: {{ .Values.persistence.storageClassName }}
   resources:
     requests:
-      storage: 500Gi         # Must match the PV capacity
-  volumeName: nfs-models-pv  # The explicit "handshake" to your PV
+      storage: {{ .Values.persistence.size }}
