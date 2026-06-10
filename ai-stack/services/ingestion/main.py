@@ -64,11 +64,31 @@ async def init_db():
             pass
         await db.commit()
 
+async def _probe_embedding_dim():
+    """Warn loudly at startup if EMBEDDING_DIM doesn't match the live embedding service."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{EMBEDDING_URL}/v1/embeddings", json={"input": ["dim-probe"]})
+            resp.raise_for_status()
+            actual = len(resp.json()["data"][0]["embedding"])
+        if actual != EMBEDDING_DIM:
+            print(
+                f"[ERROR] Embedding dimension mismatch: service returned {actual}, "
+                f"EMBEDDING_DIM={EMBEDDING_DIM}. "
+                f"Update config.embeddingDim in ingestion/values.yaml to {actual} "
+                f"and re-ingest all documents — searches will silently return nothing until fixed.",
+                flush=True,
+            )
+    except Exception as exc:
+        print(f"[WARN] Could not probe embedding service at startup ({exc}) — skipping dim check.", flush=True)
+
+
 @app.on_event("startup")
 async def startup():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     os.makedirs(FILES_DIR, exist_ok=True)
     await init_db()
+    await _probe_embedding_dim()
     if WATCH_DIR:
         asyncio.create_task(watch_folder())
 

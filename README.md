@@ -477,13 +477,13 @@ The bootstrap script creates plain Kubernetes Secrets (base64-encoded, not encry
 **Open-WebUI shows no models**
 - Confirm ai-agent is running: `kubectl get pods -n ai-agent`
 - Check the `vllm.baseUrl` in `open-webui/values.yaml` points to ai-agent's cluster DNS, not directly to vLLM.
-- Open-WebUI has no login by default (`auth.enabled: false` in values.yaml). Set to `true` before exposing to the internet.
+- Open-WebUI requires login by default (`auth.enabled: true`). The first user to register becomes admin; subsequent users require admin approval.
 
 ### Common gotchas
 
 - **Embedding dimension must match the model.** `ingestion` `embeddingDim` defaults to `768` for `nomic-embed-text-v1.5`. If you swap the embedding model, update `embeddingDim` to the new model's dimension *and re-ingest* — a mismatch makes every search silently return nothing.
 - **NodePorts must be unique.** Check the [NodePort table](#services) before adding a service; a duplicate port makes the new Service fail to create.
-- **vLLM flags are model-specific.** The defaults are tuned for Qwen3 on an RTX 3090. For any other model see [Configure vLLM for your model](#3b-configure-vllm-for-your-model) — leaving Qwen3 parsers in place will break tool calling on other models.
+- **vLLM flags are model-specific.** The default deployment is clean — no extra parsers or quantization flags. If you set `patches.enabled: true`, those settings are Qwen3-specific and will break tool calling on other models.
 - **Collection and vendor names are case-sensitive.** `Cisco` and `cisco` are different collections; keep them consistent between ingestion and querying.
 - **`pullPolicy: Always` + private images.** If your `open-rag-*` packages are private, pods will `ImagePullBackOff` until you add `ghcr-pull-secret` or make the packages public.
 

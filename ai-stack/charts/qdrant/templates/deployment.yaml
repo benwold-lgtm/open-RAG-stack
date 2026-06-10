@@ -19,6 +19,8 @@ spec:
         - name: qdrant
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - containerPort: 6333
               name: rest

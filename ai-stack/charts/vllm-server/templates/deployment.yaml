@@ -46,6 +46,8 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
           {{- if .Values.patches.enabled }}
           command: ["/bin/bash", "-c"]
           args:
