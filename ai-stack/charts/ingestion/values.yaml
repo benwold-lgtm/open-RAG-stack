@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/benwold-lgtm/open-rag-ingestion
-  tag: latest
+  tag: latest  # built by CI from this repo — pin to a specific tag for production
   pullPolicy: Always
 
 replicaCount: 1
@@ -39,6 +39,9 @@ watchDir:
   hostPath: ""          # path on the node to watch, e.g. /mnt/your-share/rag-watch
   mountPath: /mnt/watch
   pollInterval: "60"
+
+podSecurityContext:
+  fsGroup: 1000  # ensures the PVC at /app/data is writable by UID 1000
 
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>

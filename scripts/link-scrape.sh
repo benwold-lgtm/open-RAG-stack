@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Ingest a URL into the RAG knowledge base.
 # Usage:
 #   ./link-scrape.sh                        (interactive prompts)
@@ -60,8 +61,8 @@ RESPONSE=$(curl -s -X POST "${INGESTION_URL}${ENDPOINT}" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD")
 
-DOC_ID=$(echo "$RESPONSE" | grep -o '"doc_id":"[^"]*"' | cut -d'"' -f4)
-STATUS=$(echo "$RESPONSE"  | grep -o '"status":"[^"]*"'  | cut -d'"' -f4)
+DOC_ID=$(echo "$RESPONSE" | grep -o '"doc_id":"[^"]*"' | cut -d'"' -f4 || true)
+STATUS=$(echo "$RESPONSE"  | grep -o '"status":"[^"]*"'  | cut -d'"' -f4 || true)
 
 if [[ -n "$DOC_ID" ]]; then
     echo -e "${GREEN}Submitted.${NC} doc_id=${DOC_ID}  status=${STATUS}"

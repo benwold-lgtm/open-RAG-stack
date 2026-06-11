@@ -251,6 +251,23 @@ This runs `helm upgrade --install` for each service into its namespace — no Gi
 
 **Using a GitOps tool instead?** The Helm charts under `ai-stack/charts/<service>/` are the deployable unit. Point ArgoCD, Flux, or Rancher Fleet at them and let your controller manage the rollout — you don't need `deploy/install.sh` in that case.
 
+### 5. Verify everything is running
+
+Once pods are `Running` (`kubectl get pods -A`), confirm each service responds. Set `NODE_IP` to your GPU node's IP:
+
+```bash
+export NODE_IP=<your-gpu-node-ip>
+
+curl -s -o /dev/null -w "open-webui  %{http_code}\n"  http://$NODE_IP:30080
+curl -s -o /dev/null -w "vllm        %{http_code}\n"  http://$NODE_IP:30000/health
+curl -s -o /dev/null -w "embedding   %{http_code}\n"  http://$NODE_IP:30082/health
+curl -s -o /dev/null -w "ingestion   %{http_code}\n"  http://$NODE_IP:30083/health
+curl -s -o /dev/null -w "ai-agent    %{http_code}\n"  http://$NODE_IP:30081/health
+curl -s -o /dev/null -w "qdrant      %{http_code}\n"  http://$NODE_IP:30333/
+```
+
+Every service should return `200`. If a service returns `000` or nothing, check its pod logs with the matching script in `scripts/` (e.g. `./scripts/vllm-log.sh`).
+
 ---
 
 ## Forking this repo

@@ -3,8 +3,8 @@ revisionHistoryLimit: 3
 
 image:
   repository: vllm/vllm-openai
-  tag: latest
-  pullPolicy: Always
+  tag: v0.9.2  # CUDA 12.8 — upgrade to v0.20.0+ only if your node has CUDA 13.0 drivers
+  pullPolicy: IfNotPresent
 
 model:
   name: ""            # Required: HuggingFace model ID, e.g. "mistralai/Mistral-7B-Instruct-v0.3"

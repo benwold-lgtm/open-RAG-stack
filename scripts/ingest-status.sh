@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Show recent ingestion jobs and their status.
 # Usage:
 #   ./ingest-status.sh              (show last 20 documents)

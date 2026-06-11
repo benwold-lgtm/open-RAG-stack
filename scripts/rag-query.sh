@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # Send a question to the AI agent and display the response.
 # Usage:
 #   ./rag-query.sh
