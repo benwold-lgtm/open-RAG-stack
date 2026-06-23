@@ -118,12 +118,12 @@ async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:
 
     all_hits.sort(key=lambda x: x[0], reverse=True)
 
-    seen_urls: set[str] = set()
+    url_counts: dict[str, int] = {}
     top_hits: list[tuple[float, dict]] = []
     for score, payload in all_hits:
         url = payload.get("url", "")
-        if url not in seen_urls:
-            seen_urls.add(url)
+        if url_counts.get(url, 0) < 3:
+            url_counts[url] = url_counts.get(url, 0) + 1
             top_hits.append((score, payload))
         if len(top_hits) >= top_k:
             break
