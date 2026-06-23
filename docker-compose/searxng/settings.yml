@@ -1,0 +1,20 @@
+# SearXNG settings for docker compose deployment.
+# This file is mounted read-only into the searxng container.
+#
+# Before enabling web search, replace <your-secret-key> with a random value:
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+#
+# Then set WEB_SEARCH_PROVIDER: searxng in the ai-agent environment block
+# inside docker-compose.yml.
+
+use_default_settings: true
+
+server:
+  secret_key: "<your-secret-key>"
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json

@@ -1,0 +1,227 @@
+# Open-RAG-Stack — single-node docker compose for Phase 5 testing
+#
+# Requirements:
+#   - Docker Engine with NVIDIA Container Toolkit installed
+#     https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+#   - GPU: any CUDA-capable GPU (RTX 3090 for testing, L40S for production)
+#
+# Quickstart:
+#   cp .env.example .env          # fill in MODEL_DIR and LLM_MODEL
+#   docker compose pull           # pull all images (internet required once)
+#   docker compose up -d
+
+name: open-rag-stack
+
+services:
+
+  # ── Vector store ──────────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+    networks: [rag-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Embedding service ─────────────────────────────────────────────────────────
+  embedding:
+    image: ghcr.io/benwold-lgtm/open-rag-embedding:latest
+    restart: unless-stopped
+    environment:
+      EMBEDDING_MODEL: nomic-ai/nomic-embed-text-v1.5
+      HF_HOME: /models/huggingface
+    volumes:
+      - ${MODEL_DIR:-./models}:/models:ro
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks: [rag-net]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+
+  # ── Reranker service ──────────────────────────────────────────────────────────
+  reranker:
+    image: ghcr.io/benwold-lgtm/open-rag-reranker:latest
+    restart: unless-stopped
+    environment:
+      RERANKER_MODEL: BAAI/bge-reranker-v2-m3
+      HF_HOME: /models/huggingface
+    volumes:
+      - ${MODEL_DIR:-./models}:/models:ro
+    ports:
+      - "8003:8003"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks: [rag-net]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8003/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+
+  # ── Ingestion service ─────────────────────────────────────────────────────────
+  # user: root — testing-only override to ensure the named volume at /app/data is
+  # writable. The K8s deployment handles this via podSecurityContext.fsGroup: 1000.
+  ingestion:
+    image: ghcr.io/benwold-lgtm/open-rag-ingestion:latest
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ""
+      EMBEDDING_URL: http://embedding:8001
+      DB_PATH: /app/data/ingestion.db
+      CHUNK_SIZE: "512"
+      CHUNK_OVERLAP: "50"
+      EMBEDDING_DIM: "768"
+      DOCLING_ARTIFACTS_PATH: /models/docling
+    volumes:
+      - ingestion_data:/app/data
+      - ${MODEL_DIR:-./models}:/models:ro
+    ports:
+      - "8002:8002"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    networks: [rag-net]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── LLM inference (vLLM) ──────────────────────────────────────────────────────
+  # Model must be pre-downloaded to ${MODEL_DIR}/huggingface/ before starting.
+  # vLLM takes 2-5 minutes to load depending on model size — ai-agent will retry.
+  vllm:
+    image: vllm/vllm-openai:v0.9.2
+    restart: unless-stopped
+    command:
+      - "--model"
+      - "${LLM_MODEL}"
+      - "--download-dir"
+      - "/models/huggingface"
+      - "--max-model-len"
+      - "8192"
+      - "--gpu-memory-utilization"
+      - "0.85"
+      - "--max-num-seqs"
+      - "4"
+    environment:
+      HF_HOME: /models/huggingface
+    volumes:
+      - ${MODEL_DIR:-./models}:/models:ro
+      - vllm_cache:/data
+    ports:
+      - "8000:8000"
+    shm_size: "16g"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    networks: [rag-net]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 180s
+
+  # ── RAG agent ─────────────────────────────────────────────────────────────────
+  # Exposed on host port 8004 (vLLM owns 8000; ai-agent runs on 8000 internally).
+  # Open WebUI talks to this via http://ai-agent:8000/v1 (internal network name).
+  ai-agent:
+    image: ghcr.io/benwold-lgtm/open-rag-ai-agent:latest
+    restart: unless-stopped
+    environment:
+      VLLM_BASE_URL: http://vllm:8000/v1
+      VLLM_MODEL: ${LLM_MODEL}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ""
+      EMBEDDING_URL: http://embedding:8001
+      RERANKER_URL: http://reranker:8003
+      INGESTION_URL: http://ingestion:8002
+      WEB_SEARCH_PROVIDER: "none"
+    ports:
+      - "8004:8000"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+      ingestion:
+        condition: service_healthy
+      reranker:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+    networks: [rag-net]
+
+  # ── Web search — optional ─────────────────────────────────────────────────────
+  # Disabled by default (ai-agent WEB_SEARCH_PROVIDER: none).
+  # To enable: set WEB_SEARCH_PROVIDER: searxng in ai-agent env above,
+  # then update docker-compose/searxng/settings.yml with a real secret_key.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./docker-compose/searxng:/etc/searxng:ro
+    ports:
+      - "8080:8080"
+    networks: [rag-net]
+
+  # ── UI ────────────────────────────────────────────────────────────────────────
+  # Access at http://<host-ip>:3000
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.9.6
+    restart: unless-stopped
+    environment:
+      OPENAI_API_BASE_URL: http://ai-agent:8000/v1
+      OPENAI_API_KEY: not-needed
+      WEBUI_AUTH: "true"
+    volumes:
+      - webui_data:/app/backend/data
+    ports:
+      - "3000:8080"
+    depends_on:
+      - ai-agent
+    networks: [rag-net]
+
+networks:
+  rag-net:
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  ingestion_data:
+  vllm_cache:
+  webui_data:
