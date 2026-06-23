@@ -63,8 +63,6 @@ if ! python3 -c "import sentence_transformers" 2>/dev/null; then
     pip install -q --break-system-packages "sentence-transformers>=3.0.0"
 fi
 
-HF_CLI="python3 -m huggingface_hub.commands.huggingface_cli"
-
 # ── Helper: download a HF repo if not already cached ─────────────────────────
 download_hf_model() {
     local repo_id="$1"
@@ -77,13 +75,14 @@ download_hf_model() {
     fi
 
     info "Downloading ${repo_id} ..."
-    local token_arg=""
-    [[ -n "$HF_TOKEN" ]] && token_arg="--token ${HF_TOKEN}"
-
-    python3 -m huggingface_hub.commands.huggingface_cli download \
-        ${token_arg} \
-        --cache-dir "${HF_HOME}/hub" \
-        "${repo_id}" || die "Failed to download ${repo_id}"
+    python3 - <<EOF
+import os, sys
+os.environ["HF_HOME"] = "${HF_HOME}"
+from huggingface_hub import snapshot_download
+token = os.environ.get("HF_TOKEN") or None
+snapshot_download(repo_id="${repo_id}", cache_dir="${HF_HOME}/hub", token=token)
+EOF
+    [[ $? -eq 0 ]] || die "Failed to download ${repo_id}"
 
     ok "${repo_id} downloaded"
 }
