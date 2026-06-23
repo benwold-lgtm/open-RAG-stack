@@ -132,6 +132,25 @@ POST /rerank
 
 ---
 
+### Phase 4b: RAG Admin UI
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 4b.1 | Create `services/rag-admin/` microservice | ✅ Done | FastAPI + embedded single-page HTML; proxies to ingestion service |
+| 4b.2 | Add `rag-admin` to docker-compose.yml | ✅ Done | Port 8005; depends on ingestion healthy |
+| 4b.3 | Add CI workflow `build-rag-admin.yml` | ✅ Done | Matches existing service build pattern |
+
+**Access:** `http://<host-ip>:8005`
+
+**Features:** drag-and-drop file upload (PDF/DOCX/PPTX/TXT/MD), URL ingestion, deep crawl, collection management, document list with status badges, delete.
+
+**Known limitations / future work:**
+- **No authentication.** The page is accessible to anyone who can reach port 8005. Access control is currently network-level only (LAN/firewall). This is intentional for the initial internal deployment.
+- **No contributor roles.** All users with LAN access can add or delete content. A future `ADMIN_KEY` env-var gate or Open WebUI JWT validation could restrict writes to authorised users.
+- **No audit log.** Who ingested what is not tracked. The ingestion service already records `vendor` as a source tag; a `submitted_by` field and log table could be added without changing the API contract.
+
+---
+
 ### Phase 5: Validation & Benchmarking
 > Confirm improvements are measurable, not just theoretical.
 

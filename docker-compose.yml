@@ -186,6 +186,28 @@ services:
         condition: service_healthy
     networks: [rag-net]
 
+  # ── RAG admin UI ─────────────────────────────────────────────────────────────
+  # Internal-only admin page — no authentication. Control access at the network
+  # level (firewall / VLAN). Access at http://<host-ip>:8005
+  # Future: contributor roles, ingestion audit log (see docs/ENHANCEMENT-PLAN.md).
+  rag-admin:
+    image: ghcr.io/benwold-lgtm/open-rag-admin:latest
+    restart: unless-stopped
+    environment:
+      INGESTION_URL: http://ingestion:8002
+    ports:
+      - "8005:8005"
+    depends_on:
+      ingestion:
+        condition: service_healthy
+    networks: [rag-net]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8005/health\")'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   # ── Web search — optional ─────────────────────────────────────────────────────
   # Disabled by default (ai-agent WEB_SEARCH_PROVIDER: none).
   # To enable: set WEB_SEARCH_PROVIDER: searxng in ai-agent env above,
