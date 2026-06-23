@@ -1,0 +1,6 @@
+apiVersion: v2
+name: searxng
+description: Self-hosted meta search engine — no API key required
+type: application
+version: 0.1.0
+appVersion: "latest"

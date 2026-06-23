@@ -15,9 +15,6 @@ vllm:
   baseUrl: ""          # e.g. http://<gpu-node-ip>:30000/v1
   model: ""            # HuggingFace model ID loaded by vllm-server
 
-secret:
-  name: ai-agent-secrets   # must match the kubectl secret you created earlier
-
 qdrant:
   url: "http://qdrant.qdrant.svc.cluster.local:6333"
   secretName: ai-agent-secrets
@@ -35,3 +32,22 @@ resources:
 
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>
+
+# ── Web Search ───────────────────────────────────────────────────────────────
+# provider: one of  searxng | brave | serper | tavily | none
+#
+# searxng  — self-hosted, no API key needed. Deploy ai-stack/charts/searxng
+#            first, then set provider: searxng here.
+# brave    — Brave Search API. Create a K8s secret with key BRAVE_API_KEY.
+# serper   — Serper (Google) API. Create a K8s secret with key SERPER_API_KEY.
+# tavily   — Tavily API. Create a K8s secret with key TAVILY_API_KEY.
+# none     — web search disabled (RAG-only mode). No secret required.
+#
+# For external providers, create the secret before deploying:
+#   kubectl create secret generic ai-agent-secrets -n ai-agent \
+#     --from-literal=BRAVE_API_KEY=<key> \
+#     --from-literal=QDRANT_API_KEY=<key>
+webSearch:
+  provider: "none"
+  searxngUrl: "http://searxng.searxng.svc.cluster.local:8080"
+  secretName: "ai-agent-secrets"  # K8s secret containing the provider API key

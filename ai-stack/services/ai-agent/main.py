@@ -19,66 +19,104 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 EMBEDDING_URL  = os.getenv("EMBEDDING_URL",  "http://embedding.embedding.svc.cluster.local:8001")
 
 # ── Web Search Provider ───────────────────────────────────────────────────────
-# Choose one provider. Uncomment the relevant block and update run_web_search()
-# below to call your chosen provider's API. Only one should be active at a time.
-#
-# Option 1: Brave Search  (https://brave.com/search/api/ — requires API key)
-BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
-BRAVE_URL     = "https://api.search.brave.com/res/v1/web/search"
-#
-# Option 2: SearXNG — self-hosted, no API key required  (https://docs.searxng.org)
-# Set SEARXNG_URL to your SearXNG service address and use ?q=<query>&format=json
-# SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng.searxng.svc.cluster.local:8080")
-#
-# Option 3: Serper — Google Search results via API  (https://serper.dev)
-# SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-# SERPER_URL     = "https://google.serper.dev/search"
-#
-# Option 4: Tavily — AI-optimized search API  (https://tavily.com)
-# TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-# TAVILY_URL     = "https://api.tavily.com/search"
+# Set WEB_SEARCH_PROVIDER in the ai-agent Helm chart values.yaml. Options:
+#   searxng  — self-hosted, no API key (deploy ai-stack/charts/searxng)
+#   brave    — Brave Search API — requires BRAVE_API_KEY secret
+#   serper   — Google results via Serper — requires SERPER_API_KEY secret
+#   tavily   — AI-optimized search — requires TAVILY_API_KEY secret
+#   none     — web search disabled (default)
+WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "none")
+BRAVE_API_KEY  = os.getenv("BRAVE_API_KEY", "")
+SEARXNG_URL    = os.getenv("SEARXNG_URL", "http://searxng.searxng.svc.cluster.local:8080")
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
-# ── Web Search (Brave) ────────────────────────────────────────────────────────
-# Replace this function body with your chosen provider's API call.
 async def run_web_search(query: str) -> str:
+    if WEB_SEARCH_PROVIDER == "brave":
+        return await _search_brave(query)
+    if WEB_SEARCH_PROVIDER == "searxng":
+        return await _search_searxng(query)
+    if WEB_SEARCH_PROVIDER == "serper":
+        return await _search_serper(query)
+    if WEB_SEARCH_PROVIDER == "tavily":
+        return await _search_tavily(query)
+    return "Web search is disabled. Set WEB_SEARCH_PROVIDER in the ai-agent Helm values to enable it."
+
+async def _search_brave(query: str) -> str:
     if not BRAVE_API_KEY:
-        return "Error: web search API key not configured."
-
-    headers = {
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip",
-        "X-Subscription-Token": BRAVE_API_KEY
-    }
-    params = {
-        "q": query,
-        "count": 5,
-        "text_decorations": False,
-        "search_lang": "en"
-    }
-
+        return "Error: BRAVE_API_KEY not set."
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(
-                BRAVE_URL,
-                headers=headers,
-                params=params,
-                timeout=10.0
+            r = await client.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                headers={"Accept": "application/json", "X-Subscription-Token": BRAVE_API_KEY},
+                params={"q": query, "count": 5, "text_decorations": False, "search_lang": "en"},
+                timeout=10.0,
             )
-            response.raise_for_status()
-            data = response.json()
-
-            results = []
-            for r in data.get("web", {}).get("results", []):
-                results.append(
-                    f"Title: {r.get('title', '')}\n"
-                    f"URL: {r.get('url', '')}\n"
-                    f"Summary: {r.get('description', '')}\n"
-                )
-
-            return "\n---\n".join(results) if results else "No results found."
-
+            r.raise_for_status()
+            results = r.json().get("web", {}).get("results", [])
+            return "\n---\n".join(
+                f"Title: {x.get('title','')}\nURL: {x.get('url','')}\nSummary: {x.get('description','')}"
+                for x in results
+            ) or "No results found."
         except httpx.HTTPError as e:
-            return f"Search error: {str(e)}"
+            return f"Search error: {e}"
+
+async def _search_searxng(query: str) -> str:
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.get(
+                f"{SEARXNG_URL}/search",
+                params={"q": query, "format": "json", "categories": "general"},
+                timeout=10.0,
+            )
+            r.raise_for_status()
+            results = r.json().get("results", [])[:5]
+            return "\n---\n".join(
+                f"Title: {x.get('title','')}\nURL: {x.get('url','')}\nSummary: {x.get('content','')}"
+                for x in results
+            ) or "No results found."
+        except httpx.HTTPError as e:
+            return f"Search error: {e}"
+
+async def _search_serper(query: str) -> str:
+    if not SERPER_API_KEY:
+        return "Error: SERPER_API_KEY not set."
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+                json={"q": query, "num": 5},
+                timeout=10.0,
+            )
+            r.raise_for_status()
+            results = r.json().get("organic", [])
+            return "\n---\n".join(
+                f"Title: {x.get('title','')}\nURL: {x.get('link','')}\nSummary: {x.get('snippet','')}"
+                for x in results
+            ) or "No results found."
+        except httpx.HTTPError as e:
+            return f"Search error: {e}"
+
+async def _search_tavily(query: str) -> str:
+    if not TAVILY_API_KEY:
+        return "Error: TAVILY_API_KEY not set."
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"api_key": TAVILY_API_KEY, "query": query, "max_results": 5},
+                timeout=10.0,
+            )
+            r.raise_for_status()
+            results = r.json().get("results", [])
+            return "\n---\n".join(
+                f"Title: {x.get('title','')}\nURL: {x.get('url','')}\nSummary: {x.get('content','')}"
+                for x in results
+            ) or "No results found."
+        except httpx.HTTPError as e:
+            return f"Search error: {e}"
 
 # ── RAG Search ───────────────────────────────────────────────────────────────
 async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:

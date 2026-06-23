@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-config
+  namespace: searxng
+data:
+  settings.yml: |
+    use_default_settings: true
+    server:
+      secret_key: {{ .Values.config.secretKey | quote }}
+      limiter: {{ .Values.config.limiter }}
+      image_proxy: {{ .Values.config.imageProxy }}
+    search:
+      formats:
+        - html
+        - json

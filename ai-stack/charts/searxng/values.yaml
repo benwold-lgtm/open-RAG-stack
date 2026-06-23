@@ -1,0 +1,32 @@
+image:
+  repository: searxng/searxng
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: ClusterIP   # internal-only; not exposed outside the cluster
+  port: 8080
+
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+# ── SearXNG configuration ─────────────────────────────────────────────────────
+# secret_key is used for CSRF protection. Change this before deploying.
+# Generate a random value: python3 -c "import secrets; print(secrets.token_hex(32))"
+config:
+  secretKey: "change-me-before-deploying"
+  # limiter: false — disables rate limiting (appropriate for internal cluster use)
+  # imageProxy: false — disables the built-in image proxying feature
+  limiter: false
+  imageProxy: false

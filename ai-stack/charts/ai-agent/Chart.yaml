@@ -1,6 +1,6 @@
 apiVersion: v2
 name: ai-agent
-description: LangGraph AI Agent Service with Brave Search
+description: RAG AI Agent Service with pluggable web search (SearXNG / Brave / Serper / Tavily)
 type: application
 version: 0.1.0
 appVersion: "latest"

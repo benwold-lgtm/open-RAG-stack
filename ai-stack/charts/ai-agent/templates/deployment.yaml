@@ -32,11 +32,30 @@ spec:
               value: {{ .Values.vllm.baseUrl | quote }}
             - name: VLLM_MODEL
               value: {{ .Values.vllm.model | quote }}
+            - name: WEB_SEARCH_PROVIDER
+              value: {{ .Values.webSearch.provider | quote }}
+            {{- if eq .Values.webSearch.provider "searxng" }}
+            - name: SEARXNG_URL
+              value: {{ .Values.webSearch.searxngUrl | quote }}
+            {{- else if eq .Values.webSearch.provider "brave" }}
             - name: BRAVE_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secret.name }}
+                  name: {{ .Values.webSearch.secretName }}
                   key: BRAVE_API_KEY
+            {{- else if eq .Values.webSearch.provider "serper" }}
+            - name: SERPER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webSearch.secretName }}
+                  key: SERPER_API_KEY
+            {{- else if eq .Values.webSearch.provider "tavily" }}
+            - name: TAVILY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.webSearch.secretName }}
+                  key: TAVILY_API_KEY
+            {{- end }}
             - name: QDRANT_URL
               value: {{ .Values.qdrant.url | quote }}
             - name: QDRANT_API_KEY

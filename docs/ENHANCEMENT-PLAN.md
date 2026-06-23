@@ -29,7 +29,7 @@ The NVIDIA Enterprise RAG Blueprint (build.nvidia.com) was used as a reference f
 | Chunking strategy | ⚠️ word-based | ✅ RecursiveCharacterTextSplitter |
 | Multi-chunk per source | ❌ 1 chunk/URL max | ✅ 3 chunks/URL max |
 | Query rewriting | ❌ none | ✅ uses existing LLM |
-| Web search | ⚠️ Brave/Serper/Tavily (cloud) | ✅ SearXNG (self-hosted) |
+| Web search | ⚠️ Brave only (hardcoded) | ✅ SearXNG (self-hosted, default) or Brave/Serper/Tavily via env var |
 | Model hosting | ⚠️ downloads at runtime | ✅ pre-cached to local/NFS path |
 | Container images | ⚠️ pulls from GHCR/DockerHub | ✅ mirrored to internal registry |
 | Multi-index search | ⚠️ all collections, no routing | ✅ keep (routing is future work) |
@@ -74,8 +74,8 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 |---|---|---|---|
 | 1.1 | Pre-download all models to model storage path | ✅ Done | `scripts/download-models.sh` — set `MODEL_DIR` to your NFS mount or local path. LLM skipped pending model selection. |
 | 1.2 | Add `HF_HOME` env var pointing to model storage in all service Helm charts | ✅ Done | `modelStorage` block added to `embedding` and `vllm-server` charts. Set `modelStorage.enabled: true` and `modelStorage.pvcName` in each chart's `values.yaml` to activate. |
-| 1.3 | Replace Brave/Serper/Tavily with SearXNG | ⬜ Pending | SearXNG option already in `ai-agent/main.py` (commented out at line 31) |
-| 1.4 | Deploy SearXNG to K8s (new Helm chart) | ⬜ Pending | Can restrict to internal sources if needed, or disable web_search entirely |
+| 1.3 | Replace Brave/Serper/Tavily with SearXNG | ✅ Done | `ai-agent/main.py` — `WEB_SEARCH_PROVIDER` env var dispatches to all 4 providers. Default: `none` (web search off). |
+| 1.4 | Deploy SearXNG to K8s (new Helm chart) | ✅ Done | `ai-stack/charts/searxng/` — ClusterIP service, configmap-mounted settings.yml with JSON API enabled. Set `provider: searxng` in ai-agent values to activate. |
 | 1.5 | Mirror container images to internal registry | ⬜ Pending | Harbor is the recommended path; fallback is `imagePullPolicy: Never` on pre-pulled nodes |
 | 1.6 | Verify ingestion Dockerfile bakes Playwright at build (not runtime) | ⬜ Pending | Lines 12-13 of `ingestion/Dockerfile` — confirm no runtime download |
 | 1.7 | Disable vLLM genesis patches (avoid GitHub clone at startup) | ⬜ Pending | Set `patches.enabled: false` in `vllm-server/values.yaml` — default is already false |
