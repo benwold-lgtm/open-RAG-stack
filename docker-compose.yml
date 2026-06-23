@@ -136,7 +136,7 @@ services:
     environment:
       HF_HOME: /models/huggingface
     volumes:
-      - ${MODEL_DIR:-./models}:/models:ro
+      - ${MODEL_DIR:-./models}:/models
       - vllm_cache:/data
     ports:
       - "8000:8000"
