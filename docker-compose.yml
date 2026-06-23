@@ -200,7 +200,7 @@ services:
     networks: [rag-net]
 
   # ── UI ────────────────────────────────────────────────────────────────────────
-  # Access at http://<host-ip>:3000
+  # Access at http://<host-ip>:3001
   open-webui:
     image: ghcr.io/open-webui/open-webui:v0.9.6
     restart: unless-stopped
@@ -211,7 +211,7 @@ services:
     volumes:
       - webui_data:/app/backend/data
     ports:
-      - "3000:8080"
+      - "3001:8080"
     depends_on:
       - ai-agent
     networks: [rag-net]
