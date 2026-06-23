@@ -156,13 +156,24 @@ async def fetch_url(url: str) -> tuple[str, str]:
     return title, text
 
 # ── Docling converter (lazy init — loads on first document conversion) ─────────
+# OCR and table-structure ML models require pre-downloaded weights in
+# DOCLING_ARTIFACTS_PATH. Both are disabled here so the service works without
+# those weights; text-layer PDFs extract correctly. Scanned (image-only) PDFs
+# will produce minimal text — download Docling model artifacts and set
+# DOCLING_ENABLE_OCR=true in the env to re-enable when weights are present.
 _docling_converter = None
 
 def _get_docling():
     global _docling_converter
     if _docling_converter is None:
-        from docling.document_converter import DocumentConverter
-        _docling_converter = DocumentConverter()
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.datamodel.base_models import InputFormat
+        enable_ocr = os.getenv("DOCLING_ENABLE_OCR", "false").lower() == "true"
+        opts = PdfPipelineOptions(do_ocr=enable_ocr, do_table_structure=enable_ocr)
+        _docling_converter = DocumentConverter(
+            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
+        )
     return _docling_converter
 
 # ── Document extractor ────────────────────────────────────────────────────────
