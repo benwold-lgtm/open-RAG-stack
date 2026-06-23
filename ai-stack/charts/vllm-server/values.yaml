@@ -67,6 +67,7 @@ modelStorage:
 # Leave disabled for all other models (Mistral, Llama, Gemma, Phi, Qwen2, etc.)
 patches:
   enabled: false
+  gitImage: "alpine/git:latest"   # override to use mirrored image in air-gapped deployments
   genesisRepo: "https://github.com/Sandermage/genesis-vllm-patches.git"
   recipeRepo: "https://github.com/noonghunna/qwen36-27b-single-3090.git"
   # Pin to the Genesis-v7.14-compatible nightly — clear if floating on :latest again

@@ -76,7 +76,7 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 | 1.2 | Add `HF_HOME` env var pointing to model storage in all service Helm charts | ✅ Done | `modelStorage` block added to `embedding` and `vllm-server` charts. Set `modelStorage.enabled: true` and `modelStorage.pvcName` in each chart's `values.yaml` to activate. |
 | 1.3 | Replace Brave/Serper/Tavily with SearXNG | ✅ Done | `ai-agent/main.py` — `WEB_SEARCH_PROVIDER` env var dispatches to all 4 providers. Default: `none` (web search off). |
 | 1.4 | Deploy SearXNG to K8s (new Helm chart) | ✅ Done | `ai-stack/charts/searxng/` — ClusterIP service, configmap-mounted settings.yml with JSON API enabled. Set `provider: searxng` in ai-agent values to activate. |
-| 1.5 | Mirror container images to internal registry | ⬜ Pending | Harbor is the recommended path; fallback is `imagePullPolicy: Never` on pre-pulled nodes |
+| 1.5 | Mirror container images to internal registry | ✅ Done | `scripts/mirror-images.sh` — pulls all 8 images, pushes to `$REGISTRY`, prints helm overrides. `ai-stack/registry-values.example.yaml` shows per-chart override values. `vllm-server` patches initContainer image moved from hardcoded to `patches.gitImage` value. |
 | 1.6 | Verify ingestion Dockerfile bakes Playwright at build (not runtime) | ⬜ Pending | Lines 12-13 of `ingestion/Dockerfile` — confirm no runtime download |
 | 1.7 | Disable vLLM genesis patches (avoid GitHub clone at startup) | ⬜ Pending | Set `patches.enabled: false` in `vllm-server/values.yaml` — default is already false |
 
@@ -90,7 +90,7 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 2.1 | Fix URL deduplication — allow up to 3 chunks per source URL | ✅ Done | `ai-agent/main.py:119-129` — `seen_urls` set replaced with `url_counts` dict capped at 3 |
-| 2.2 | Add query rewriting step before embedding | ⬜ Pending | `ai-agent/main.py` — ~15 lines, uses existing LLM |
+| 2.2 | Add query rewriting step before embedding | ✅ Done | `ai-agent/main.py` — `rewrite_query()` calls the LLM (max 64 tokens, temp=0) before embedding; strips think-tags; falls back to original query on error. |
 | 2.3 | Switch to RecursiveCharacterTextSplitter (sentence-aware chunking) | ⬜ Pending | `ingestion/main.py:110-119` — add `langchain-text-splitters` to requirements |
 | 2.4 | Bump Qdrant fetch count from 5 to 20 (pre-reranker pool) | ⬜ Pending | `ai-agent/main.py` — single constant change; reranker in Phase 3 picks top-5 |
 

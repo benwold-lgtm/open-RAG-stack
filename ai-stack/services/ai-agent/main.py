@@ -118,14 +118,41 @@ async def _search_tavily(query: str) -> str:
         except httpx.HTTPError as e:
             return f"Search error: {e}"
 
+# ── Query Rewriting ───────────────────────────────────────────────────────────
+async def rewrite_query(query: str) -> str:
+    """Rewrite the user's query into a keyword-rich retrieval query via the LLM.
+    Falls back to the original query on any error."""
+    try:
+        client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
+        response = await client.chat.completions.create(
+            model=VLLM_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Rewrite the following question as a concise, keyword-rich search query "
+                        "optimized for document retrieval. Output only the rewritten query, no explanation."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+            max_tokens=64,
+            temperature=0.0,
+        )
+        rewritten = strip_think_tags(response.choices[0].message.content or "").strip()
+        return rewritten if rewritten else query
+    except Exception:
+        return query
+
 # ── RAG Search ───────────────────────────────────────────────────────────────
 async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:
+    search_query = await rewrite_query(query)
     qdrant_headers = {"api-key": QDRANT_API_KEY} if QDRANT_API_KEY else {}
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         embed_resp = await client.post(
             f"{EMBEDDING_URL}/v1/embeddings/query",
-            json={"input": query}
+            json={"input": search_query}
         )
         embed_resp.raise_for_status()
         query_vector = embed_resp.json()["data"][0]["embedding"]

@@ -1,0 +1,74 @@
+# registry-values.example.yaml
+#
+# Helm values overrides for air-gapped / internal registry deployments.
+# Run scripts/mirror-images.sh first to populate your registry, then copy
+# the relevant section below to a per-chart override file.
+#
+# Usage (one file per chart release):
+#   cp ai-stack/registry-values.example.yaml my-registry-values.yaml
+#   # Edit my-registry-values.yaml: replace <YOUR_REGISTRY> with your prefix
+#   helm install ai-agent  ai-stack/charts/ai-agent  -n ai-agent  -f my-registry-values.yaml
+#   helm install embedding ai-stack/charts/embedding -n embedding -f my-registry-values.yaml
+#   ... etc.
+#
+# Replace <YOUR_REGISTRY> everywhere with your internal registry prefix,
+# e.g.: harbor.example.com/open-rag
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: This file uses YAML comments to show values for multiple charts.
+# Since each chart is a separate Helm release, copy only the relevant
+# image block (image.repository + image.pullPolicy) into your override file.
+# All charts use the same key names — the only difference is the image name.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── ai-agent ──────────────────────────────────────────────────────────────────
+image:
+  repository: <YOUR_REGISTRY>/open-rag-ai-agent
+  pullPolicy: IfNotPresent   # change from Always — avoids registry hit on every pod restart
+
+# ── embedding ─────────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/open-rag-embedding
+#   pullPolicy: IfNotPresent
+
+# ── ingestion ─────────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/open-rag-ingestion
+#   pullPolicy: IfNotPresent
+
+# ── open-webui ────────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/open-webui
+#   pullPolicy: IfNotPresent
+
+# ── qdrant ────────────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/qdrant
+#   pullPolicy: IfNotPresent
+
+# ── searxng ───────────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/searxng
+#   pullPolicy: IfNotPresent
+
+# ── vllm-server ───────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/vllm-openai
+#   pullPolicy: IfNotPresent
+# patches:
+#   gitImage: <YOUR_REGISTRY>/alpine-git:latest   # only needed if patches.enabled: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Alternative: imagePullPolicy: Never (no internal registry)
+# ─────────────────────────────────────────────────────────────────────────────
+# If you pre-pull images directly on each node instead of running a registry:
+#
+#   ssh <node> docker pull ghcr.io/benwold-lgtm/open-rag-ai-agent:latest
+#   ... (repeat for all images)
+#
+# Then override pullPolicy only — keep the original image.repository:
+#
+#   image:
+#     pullPolicy: Never
+#
+# Kubernetes will use the locally cached image without contacting any registry.

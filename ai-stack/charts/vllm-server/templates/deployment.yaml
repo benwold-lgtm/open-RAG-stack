@@ -26,7 +26,7 @@ spec:
       {{- if .Values.patches.enabled }}
       initContainers:
         - name: fetch-patches
-          image: alpine/git:latest
+          image: {{ .Values.patches.gitImage }}
           command: ["/bin/sh", "-c"]
           args:
             - |
