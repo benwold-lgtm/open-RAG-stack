@@ -54,9 +54,10 @@ input:focus,select:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 2px 
 .sb{padding:.15rem .45rem;border-radius:9999px;font-size:.68rem;font-weight:500;white-space:nowrap}
 .s-pending{background:#fef9c3;color:#854d0e}
 .s-processing{background:#dbeafe;color:#1d4ed8}
-.s-done{background:#dcfce7;color:#166534}
-.s-error{background:#fee2e2;color:#991b1b}
+.s-done,.s-completed{background:#dcfce7;color:#166534}
+.s-error,.s-failed{background:#fee2e2;color:#991b1b}
 .s-uploading{background:#e0e7ff;color:#3730a3}
+.s-unchanged{background:#f1f5f9;color:#64748b}
 .docs-hd{display:flex;align-items:center;gap:.5rem;margin-bottom:1rem}
 .docs-hd h2{margin:0}
 .sp{flex:1}
@@ -251,17 +252,19 @@ async function loadDocs() {
     return;
   }
   const TYPE_ICON = {url:'🔗', document:'📄', deep_crawl:'🕷️'};
+  const STATUS_LABEL = {completed:'done', failed:'error', unchanged:'unchanged'};
   tbody.innerHTML = docs.map(d => {
     const src = d.url || d.id || '';
     const short = src.length > 55 ? '…' + src.slice(-52) : src;
     const date = (d.updated_at || '').slice(0, 16).replace('T', ' ') || '—';
     const icon = TYPE_ICON[d.source_type] || '📄';
+    const statusLabel = STATUS_LABEL[d.status] || d.status;
     return '<tr>' +
       '<td class="src" title="' + esc(src) + '">' + esc(short) + '</td>' +
       '<td>' + esc(d.collection || '') + '</td>' +
       '<td>' + esc(d.vendor || '—') + '</td>' +
       '<td>' + icon + ' ' + esc(d.source_type || '') + '</td>' +
-      '<td><span class="sb s-' + esc(d.status) + '">' + esc(d.status) + '</span></td>' +
+      '<td><span class="sb s-' + esc(d.status) + '">' + esc(statusLabel) + '</span></td>' +
       '<td style="white-space:nowrap;color:#64748b">' + date + '</td>' +
       '<td><button class="btn btn-danger btn-sm" onclick="deleteDoc(\'' + esc(d.id) + '\')">&#x2715;</button></td>' +
       '</tr>';
