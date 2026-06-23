@@ -126,7 +126,7 @@ services:
       - "--model"
       - "${LLM_MODEL}"
       - "--download-dir"
-      - "/models/huggingface"
+      - "/models/huggingface/hub"
       - "--max-model-len"
       - "8192"
       - "--gpu-memory-utilization"
