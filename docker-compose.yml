@@ -24,7 +24,7 @@ services:
       - "6333:6333"
     networks: [rag-net]
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -50,7 +50,7 @@ services:
               capabilities: [gpu]
     networks: [rag-net]
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8001/health\")'"]
       interval: 15s
       timeout: 10s
       retries: 8
@@ -76,7 +76,7 @@ services:
               capabilities: [gpu]
     networks: [rag-net]
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8003/health"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8003/health\")'"]
       interval: 15s
       timeout: 10s
       retries: 8
@@ -110,7 +110,7 @@ services:
         condition: service_healthy
     networks: [rag-net]
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8002/health\")'"]
       interval: 15s
       timeout: 10s
       retries: 5
