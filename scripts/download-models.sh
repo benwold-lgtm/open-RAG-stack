@@ -60,7 +60,7 @@ if ! python3 -c "import huggingface_hub" 2>/dev/null; then
 fi
 if ! python3 -c "import sentence_transformers" 2>/dev/null; then
     info "Installing sentence-transformers (needed to verify model loads)..."
-    pip install -q --break-system-packages "sentence-transformers>=3.0.0"
+    pip install -q --break-system-packages "sentence-transformers>=3.0.0" einops
 fi
 
 # ── Helper: download a HF repo if not already cached ─────────────────────────
