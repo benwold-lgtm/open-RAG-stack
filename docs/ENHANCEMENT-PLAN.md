@@ -73,7 +73,7 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 1.1 | Pre-download all models to model storage path | ✅ Done | `scripts/download-models.sh` — set `MODEL_DIR` to your NFS mount or local path. LLM skipped pending model selection. |
-| 1.2 | Add `HF_HOME` env var pointing to model storage in all service Helm charts | ⬜ Pending | Prevents HuggingFace calls at pod startup |
+| 1.2 | Add `HF_HOME` env var pointing to model storage in all service Helm charts | ✅ Done | `modelStorage` block added to `embedding` and `vllm-server` charts. Set `modelStorage.enabled: true` and `modelStorage.pvcName` in each chart's `values.yaml` to activate. |
 | 1.3 | Replace Brave/Serper/Tavily with SearXNG | ⬜ Pending | SearXNG option already in `ai-agent/main.py` (commented out at line 31) |
 | 1.4 | Deploy SearXNG to K8s (new Helm chart) | ⬜ Pending | Can restrict to internal sources if needed, or disable web_search entirely |
 | 1.5 | Mirror container images to internal registry | ⬜ Pending | Harbor is the recommended path; fallback is `imagePullPolicy: Never` on pre-pulled nodes |

@@ -30,6 +30,10 @@ spec:
           env:
             - name: EMBEDDING_MODEL
               value: {{ .Values.model.name | quote }}
+            {{- if .Values.modelStorage.enabled }}
+            - name: HF_HOME
+              value: "{{ .Values.modelStorage.mountPath }}/huggingface"
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -45,6 +49,12 @@ spec:
             initialDelaySeconds: 45
             periodSeconds: 10
             timeoutSeconds: 10
+          {{- if .Values.modelStorage.enabled }}
+          volumeMounts:
+            - name: model-storage
+              mountPath: {{ .Values.modelStorage.mountPath }}
+              readOnly: true
+          {{- end }}
           resources:
             requests:
               memory: {{ .Values.resources.requests.memory }}
@@ -52,3 +62,9 @@ spec:
             limits:
               memory: {{ .Values.resources.limits.memory }}
               cpu: {{ .Values.resources.limits.cpu }}
+      {{- if .Values.modelStorage.enabled }}
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.modelStorage.pvcName }}
+      {{- end }}

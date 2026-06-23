@@ -60,7 +60,7 @@ spec:
               python3 /patches/patch_tolist_cudagraph.py
               exec python3 -m vllm.entrypoints.openai.api_server \
                 --model {{ .Values.model.name }} \
-                --download-dir {{ .Values.model.downloadDir }} \
+                --download-dir {{ if .Values.modelStorage.enabled }}{{ .Values.modelStorage.mountPath }}/huggingface{{ else }}{{ .Values.model.downloadDir }}{{ end }} \
                 --quantization {{ .Values.patches.quantization }} \
                 --dtype {{ .Values.patches.dtype }} \
                 --tensor-parallel-size 1 \
@@ -87,7 +87,7 @@ spec:
             - --model
             - {{ .Values.model.name | quote }}
             - --download-dir
-            - {{ .Values.model.downloadDir | quote }}
+            - {{ if .Values.modelStorage.enabled }}{{ printf "%s/huggingface" .Values.modelStorage.mountPath | quote }}{{ else }}{{ .Values.model.downloadDir | quote }}{{ end }}
             - --max-model-len
             - {{ .Values.server.maxModelLen | quote }}
             - --gpu-memory-utilization
@@ -115,6 +115,10 @@ spec:
                 secretKeyRef:
                   name: hf-token-secret
                   key: token
+            {{- if .Values.modelStorage.enabled }}
+            - name: HF_HOME
+              value: "{{ .Values.modelStorage.mountPath }}/huggingface"
+            {{- end }}
             {{- range .Values.env.extra }}
             - name: {{ .name }}
               value: {{ .value | quote }}
@@ -130,6 +134,11 @@ spec:
             - name: patches
               mountPath: /patches
             {{- end }}
+            {{- if .Values.modelStorage.enabled }}
+            - name: model-storage
+              mountPath: {{ .Values.modelStorage.mountPath }}
+              readOnly: true
+            {{- end }}
           resources: {{ toYaml .Values.resources | nindent 12 }}
       volumes:
         - name: data-vol
@@ -142,4 +151,10 @@ spec:
         {{- if .Values.patches.enabled }}
         - name: patches
           emptyDir: {}
+        {{- end }}
+        {{- if .Values.modelStorage.enabled }}
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.modelStorage.pvcName }}
+            readOnly: true
         {{- end }}

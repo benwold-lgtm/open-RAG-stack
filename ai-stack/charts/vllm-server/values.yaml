@@ -46,6 +46,21 @@ shm:
 env:
   extra: []  # model-specific env vars, e.g. [{name: VLLM_ALLOW_LONG_MAX_MODEL_LEN, value: "1"}]
 
+# ── Air-gapped model storage ─────────────────────────────────────────────────
+# Enable to load the LLM from pre-downloaded model storage instead of pulling
+# from HuggingFace at pod startup. Run scripts/download-models.sh first, then
+# set enabled: true and pvcName to your pre-created PVC.
+# When enabled:
+#   - model storage is mounted read-only at mountPath
+#   - HF_HOME and --download-dir both point to mountPath/huggingface
+#   - the dedicated data-vol PVC (persistence.pvcName) remains mounted at /data
+#     as writable scratch space for vLLM runtime artifacts
+# The PVC must exist before deploying — it is NOT created by this chart.
+modelStorage:
+  enabled: false
+  pvcName: model-storage-pvc  # pre-existing PVC backed by your model storage
+  mountPath: /models
+
 # ── Qwen3 advanced patches ──────────────────────────────────────────────────
 # Only set enabled: true if you are running Qwen3 on a single RTX 3090 and
 # need the Genesis memory patches + MTP speculative decoding.

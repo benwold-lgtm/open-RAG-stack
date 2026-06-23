@@ -23,3 +23,14 @@ resources:
     cpu: "8000m"
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>
+
+# ── Air-gapped model storage ─────────────────────────────────────────────────
+# Enable to use pre-downloaded models instead of fetching from HuggingFace at
+# pod startup. Run scripts/download-models.sh first to populate the storage,
+# then set enabled: true and pvcName to your pre-created PVC.
+# The PVC must exist before deploying — it is NOT created by this chart because
+# it is typically shared across services (NFS or similar shared storage).
+modelStorage:
+  enabled: false
+  pvcName: model-storage-pvc  # pre-existing PVC backed by your model storage
+  mountPath: /models
