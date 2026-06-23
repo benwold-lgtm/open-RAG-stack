@@ -56,11 +56,11 @@ mkdir -p "${HF_HOME}"
 # ── Ensure huggingface-hub CLI is available ────────────────────────────────────
 if ! python3 -c "import huggingface_hub" 2>/dev/null; then
     info "Installing huggingface-hub..."
-    pip install -q "huggingface-hub>=0.24.0"
+    pip install -q --break-system-packages "huggingface-hub>=0.24.0"
 fi
 if ! python3 -c "import sentence_transformers" 2>/dev/null; then
     info "Installing sentence-transformers (needed to verify model loads)..."
-    pip install -q "sentence-transformers>=3.0.0"
+    pip install -q --break-system-packages "sentence-transformers>=3.0.0"
 fi
 
 HF_CLI="python3 -m huggingface_hub.commands.huggingface_cli"
@@ -135,7 +135,7 @@ if [[ -d "${DOCLING_ARTIFACTS}/TableFormer" ]] && [[ -d "${DOCLING_ARTIFACTS}/la
 else
     if ! python3 -c "import docling" 2>/dev/null; then
         info "Installing docling for model download..."
-        pip install -q "docling>=2.0.0"
+        pip install -q --break-system-packages "docling>=2.0.0"
     fi
 
     info "Downloading Docling layout + TableFormer models..."
