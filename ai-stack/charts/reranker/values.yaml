@@ -1,0 +1,37 @@
+image:
+  repository: ghcr.io/benwold-lgtm/open-rag-reranker
+  tag: latest  # built by CI from this repo — pin to a specific tag for production
+  pullPolicy: Always
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: NodePort
+  port: 8003
+  nodePort: 30084
+
+model:
+  name: "BAAI/bge-reranker-v2-m3"
+
+resources:
+  requests:
+    memory: "2Gi"
+    cpu: "1000m"
+  limits:
+    memory: "8Gi"
+    cpu: "4000m"
+
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>
+
+# ── Air-gapped model storage ─────────────────────────────────────────────────
+# Enable to use pre-downloaded models instead of fetching from HuggingFace at
+# pod startup. Run scripts/download-models.sh first to populate the storage,
+# then set enabled: true and pvcName to your pre-created PVC.
+# The PVC must exist before deploying — it is NOT created by this chart because
+# it is typically shared across services (NFS or similar shared storage).
+modelStorage:
+  enabled: false
+  pvcName: model-storage-pvc  # pre-existing PVC backed by your model storage
+  mountPath: /models

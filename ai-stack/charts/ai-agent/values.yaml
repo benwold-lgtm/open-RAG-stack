@@ -22,6 +22,9 @@ qdrant:
 embedding:
   url: "http://embedding.embedding.svc.cluster.local:8001"
 
+ingestion:
+  url: "http://ingestion.ingestion.svc.cluster.local:8002"
+
 resources:
   requests:
     memory: "256Mi"
@@ -51,3 +54,9 @@ webSearch:
   provider: "none"
   searxngUrl: "http://searxng.searxng.svc.cluster.local:8080"
   secretName: "ai-agent-secrets"  # K8s secret containing the provider API key
+
+# ── Reranker ─────────────────────────────────────────────────────────────────
+# Leave url empty to disable reranking (top-5 by vector score is used instead).
+# Deploy ai-stack/charts/reranker first, then set url here to enable it.
+reranker:
+  url: ""  # e.g. http://reranker.reranker.svc.cluster.local:8003

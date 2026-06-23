@@ -17,6 +17,8 @@ VLLM_MODEL     = os.getenv("VLLM_MODEL")       # HuggingFace model ID served by 
 QDRANT_URL     = os.getenv("QDRANT_URL",     "http://qdrant.qdrant.svc.cluster.local:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 EMBEDDING_URL  = os.getenv("EMBEDDING_URL",  "http://embedding.embedding.svc.cluster.local:8001")
+RERANKER_URL   = os.getenv("RERANKER_URL",  "")  # empty = reranking disabled
+INGESTION_URL  = os.getenv("INGESTION_URL", "http://ingestion.ingestion.svc.cluster.local:8002")
 
 # ── Web Search Provider ───────────────────────────────────────────────────────
 # Set WEB_SEARCH_PROVIDER in the ai-agent Helm chart values.yaml. Options:
@@ -144,8 +146,44 @@ async def rewrite_query(query: str) -> str:
     except Exception:
         return query
 
+# ── RRF merge ────────────────────────────────────────────────────────────────
+def _rrf_merge(
+    vector_hits: list[tuple[float, int, dict]],
+    lexical_hits: list[dict],
+    k: int = 60,
+) -> list[tuple[float, dict]]:
+    """Merge vector and lexical ranked lists via Reciprocal Rank Fusion."""
+    scores: dict[str, float] = {}
+    payloads: dict[str, dict] = {}
+
+    for rank, (_, pid, payload) in enumerate(vector_hits, start=1):
+        key = str(pid)
+        scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+        payloads[key] = payload
+
+    for rank, item in enumerate(lexical_hits, start=1):
+        key = str(item.get("point_id", ""))
+        if not key:
+            continue
+        scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+        if key not in payloads:
+            payloads[key] = {
+                "url":         item.get("url", ""),
+                "title":       item.get("title", ""),
+                "vendor":      item.get("vendor", ""),
+                "collection":  item.get("collection", ""),
+                "content":     item.get("content", ""),
+                "chunk_index": 0,
+            }
+
+    return sorted(
+        [(scores[k], payloads[k]) for k in scores],
+        key=lambda x: x[0],
+        reverse=True,
+    )
+
 # ── RAG Search ───────────────────────────────────────────────────────────────
-async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:
+async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
     search_query = await rewrite_query(query)
     qdrant_headers = {"api-key": QDRANT_API_KEY} if QDRANT_API_KEY else {}
 
@@ -164,7 +202,7 @@ async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:
         if not collections:
             return "No ingested documents found.", []
 
-        all_hits: list[tuple[float, dict]] = []
+        vector_hits: list[tuple[float, int, dict]] = []
         for collection in collections:
             try:
                 resp = await client.post(
@@ -174,14 +212,28 @@ async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:
                 )
                 if resp.status_code == 200:
                     for hit in resp.json().get("result", []):
-                        all_hits.append((hit["score"], hit["payload"]))
+                        vector_hits.append((hit["score"], hit["id"], hit["payload"]))
             except Exception:
                 continue
 
-    if not all_hits:
+        lexical_hits: list[dict] = []
+        try:
+            lex_resp = await client.get(
+                f"{INGESTION_URL}/search/lexical",
+                params={"q": search_query, "limit": top_k},
+            )
+            if lex_resp.status_code == 200:
+                lexical_hits = lex_resp.json().get("results", [])
+        except Exception:
+            pass
+
+    if not vector_hits and not lexical_hits:
         return "No relevant documents found.", []
 
-    all_hits.sort(key=lambda x: x[0], reverse=True)
+    vector_hits.sort(key=lambda x: x[0], reverse=True)
+
+    all_hits = _rrf_merge(vector_hits, lexical_hits) if lexical_hits \
+               else [(score, payload) for score, _, payload in vector_hits]
 
     url_counts: dict[str, int] = {}
     top_hits: list[tuple[float, dict]] = []
@@ -192,6 +244,22 @@ async def run_rag_search(query: str, top_k: int = 5) -> tuple[str, list[dict]]:
             top_hits.append((score, payload))
         if len(top_hits) >= top_k:
             break
+
+    if RERANKER_URL and top_hits:
+        passages = [payload.get("content", "") for _, payload in top_hits]
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as rc:
+                r = await rc.post(
+                    f"{RERANKER_URL}/rerank",
+                    json={"query": query, "passages": passages, "top_n": 5},
+                )
+                r.raise_for_status()
+                ranked = r.json()
+            top_hits = [(item["score"], top_hits[item["index"]][1]) for item in ranked]
+        except Exception:
+            top_hits = top_hits[:5]
+    else:
+        top_hits = top_hits[:5]
 
     parts = []
     sources = []

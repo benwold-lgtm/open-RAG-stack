@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reranker
+  namespace: reranker
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      app: reranker
+  template:
+    metadata:
+      labels:
+        app: reranker
+    spec:
+      nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: reranker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          ports:
+            - containerPort: 8003
+          env:
+            - name: RERANKER_MODEL
+              value: {{ .Values.model.name | quote }}
+            {{- if .Values.modelStorage.enabled }}
+            - name: HF_HOME
+              value: "{{ .Values.modelStorage.mountPath }}/huggingface"
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 10
+          {{- if .Values.modelStorage.enabled }}
+          volumeMounts:
+            - name: model-storage
+              mountPath: {{ .Values.modelStorage.mountPath }}
+              readOnly: true
+          {{- end }}
+          resources:
+            requests:
+              memory: {{ .Values.resources.requests.memory }}
+              cpu: {{ .Values.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.resources.limits.memory }}
+              cpu: {{ .Values.resources.limits.cpu }}
+      {{- if .Values.modelStorage.enabled }}
+      volumes:
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.modelStorage.pvcName }}
+      {{- end }}

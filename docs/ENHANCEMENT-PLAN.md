@@ -77,8 +77,8 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 | 1.3 | Replace Brave/Serper/Tavily with SearXNG | ✅ Done | `ai-agent/main.py` — `WEB_SEARCH_PROVIDER` env var dispatches to all 4 providers. Default: `none` (web search off). |
 | 1.4 | Deploy SearXNG to K8s (new Helm chart) | ✅ Done | `ai-stack/charts/searxng/` — ClusterIP service, configmap-mounted settings.yml with JSON API enabled. Set `provider: searxng` in ai-agent values to activate. |
 | 1.5 | Mirror container images to internal registry | ✅ Done | `scripts/mirror-images.sh` — pulls all 8 images, pushes to `$REGISTRY`, prints helm overrides. `ai-stack/registry-values.example.yaml` shows per-chart override values. `vllm-server` patches initContainer image moved from hardcoded to `patches.gitImage` value. |
-| 1.6 | Verify ingestion Dockerfile bakes Playwright at build (not runtime) | ⬜ Pending | Lines 12-13 of `ingestion/Dockerfile` — confirm no runtime download |
-| 1.7 | Disable vLLM genesis patches (avoid GitHub clone at startup) | ⬜ Pending | Set `patches.enabled: false` in `vllm-server/values.yaml` — default is already false |
+| 1.6 | Verify ingestion Dockerfile bakes Playwright at build (not runtime) | ✅ Done | `playwright install --with-deps chromium` runs in `RUN` layer at build time — no runtime download |
+| 1.7 | Disable vLLM genesis patches (avoid GitHub clone at startup) | ✅ Done | `patches.enabled: false` confirmed as default in `vllm-server/values.yaml` — no change needed |
 
 **Verification:** After Phase 1, deploy to a node with outbound network blocked. All pods must reach `Running` state and serve requests without errors.
 
@@ -91,8 +91,8 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 |---|---|---|---|
 | 2.1 | Fix URL deduplication — allow up to 3 chunks per source URL | ✅ Done | `ai-agent/main.py:119-129` — `seen_urls` set replaced with `url_counts` dict capped at 3 |
 | 2.2 | Add query rewriting step before embedding | ✅ Done | `ai-agent/main.py` — `rewrite_query()` calls the LLM (max 64 tokens, temp=0) before embedding; strips think-tags; falls back to original query on error. |
-| 2.3 | Switch to RecursiveCharacterTextSplitter (sentence-aware chunking) | ⬜ Pending | `ingestion/main.py:110-119` — add `langchain-text-splitters` to requirements |
-| 2.4 | Bump Qdrant fetch count from 5 to 20 (pre-reranker pool) | ⬜ Pending | `ai-agent/main.py` — single constant change; reranker in Phase 3 picks top-5 |
+| 2.3 | Switch to RecursiveCharacterTextSplitter (sentence-aware chunking) | ✅ Done | `ingestion/main.py` — replaced word-split loop; added `langchain-text-splitters>=0.3.0` to requirements. `CHUNK_SIZE` now means characters (not words); default 512 chars ≈ 80–100 words. |
+| 2.4 | Bump Qdrant fetch count from 5 to 20 (pre-reranker pool) | ✅ Done | `ai-agent/main.py` — `run_rag_search` default `top_k` changed from 5 → 20; Phase 3 reranker trims to top-5. |
 
 ---
 
@@ -101,13 +101,13 @@ This stack is hardware-agnostic — any CUDA-capable GPU node works. The table b
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 3.1 | Create `services/reranker/main.py` | ⬜ Pending | FastAPI, loads `BAAI/bge-reranker-v2-m3` via CrossEncoder |
-| 3.2 | Create `services/reranker/requirements.txt` | ⬜ Pending | sentence-transformers, fastapi, torch, uvicorn |
-| 3.3 | Create `services/reranker/Dockerfile` | ⬜ Pending | Match pattern of embedding service Dockerfile |
-| 3.4 | Create `ai-stack/charts/reranker/` Helm chart | ⬜ Pending | Same structure as embedding chart; set `nodeSelector` to your GPU node |
-| 3.5 | Wire reranker into `ai-agent/main.py` retrieval flow | ⬜ Pending | After Qdrant top-20 → call reranker → take top-5 → assemble LLM context |
-| 3.6 | Add CI workflow `.github/workflows/build-reranker.yml` | ⬜ Pending | Match existing build workflows |
-| 3.7 | Update `README.md` architecture section | ⬜ Pending | Add reranker to component list and diagram |
+| 3.1 | Create `services/reranker/main.py` | ✅ Done | FastAPI + CrossEncoder; `RERANKER_MODEL` env var; CUDA auto-detected; thread-pool executor for CPU/GPU bound inference |
+| 3.2 | Create `services/reranker/requirements.txt` | ✅ Done | sentence-transformers==3.0.0, torch==2.3.0 (cu121), fastapi, uvicorn, pydantic |
+| 3.3 | Create `services/reranker/Dockerfile` | ✅ Done | Matches embedding Dockerfile; port 8003; cu121 PyTorch index |
+| 3.4 | Create `ai-stack/charts/reranker/` Helm chart | ✅ Done | Port 8003 / NodePort 30084; modelStorage block for air-gapped use; matches embedding chart structure |
+| 3.5 | Wire reranker into `ai-agent/main.py` retrieval flow | ✅ Done | `RERANKER_URL` env var (empty = disabled); after Qdrant top-20 dedup → POST /rerank → top-5; falls back to top-5 by vector score on error or if disabled |
+| 3.6 | Add CI workflow `.github/workflows/build-reranker.yml` | ✅ Done | Triggers on push to `ai-stack/services/reranker/**`; matches build-embeddings.yml pattern |
+| 3.7 | Update `README.md` architecture section | ✅ Done | Added reranker to Services table (port 30084); updated request flow description |
 
 **Reranker API contract:**
 ```
@@ -122,13 +122,13 @@ POST /rerank
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 4.1 | Replace PyMuPDF with Docling in `ingestion/main.py` | ⬜ Pending | Lines 158-176; add DOCX/PPTX support; update SUPPORTED_EXTENSIONS |
-| 4.2 | Wire `DOCLING_ARTIFACTS_PATH` env var into ingestion Helm chart | ⬜ Pending | Point to `<MODEL_DIR>/docling` on your model storage |
-| 4.3 | Add SQLite FTS5 virtual table to `ingestion.db` | ⬜ Pending | Schema: `point_id, collection, content, title, vendor` |
-| 4.4 | Populate FTS5 table alongside every Qdrant upsert | ⬜ Pending | `ingestion/main.py` — add INSERT to FTS5 table in upsert loop |
-| 4.5 | Add BM25 search endpoint to ingestion service | ⬜ Pending | `GET /search/lexical?q=...&collection=...&limit=20` |
-| 4.6 | Add RRF fusion to `ai-agent/main.py` | ⬜ Pending | Call lexical search + vector search in parallel; merge with RRF (k=60) |
-| 4.7 | Update ingestion `requirements.txt` | ⬜ Pending | Add `docling>=2.0.0`; remove `pymupdf>=1.24.0` |
+| 4.1 | Replace PyMuPDF with Docling in `ingestion/main.py` | ✅ Done | Lazy-init `DocumentConverter` via `_get_docling()`; writes to temp file, runs in thread pool executor; DOCX/PPTX now supported; preserves paragraph structure in output |
+| 4.2 | Wire `DOCLING_ARTIFACTS_PATH` env var into ingestion Helm chart | ✅ Done | `modelStorage` block added to ingestion chart (matches embedding/reranker pattern); when enabled, `DOCLING_ARTIFACTS_PATH` set to `<mountPath>/docling` |
+| 4.3 | Add SQLite FTS5 virtual table to `ingestion.db` | ✅ Done | Schema: `point_id UNINDEXED, collection UNINDEXED, url UNINDEXED, content, title, vendor, doc_id UNINDEXED`; created in `init_db()` |
+| 4.4 | Populate FTS5 table alongside every Qdrant upsert | ✅ Done | `run_pipeline()` — deletes old FTS5 rows by `doc_id` before Qdrant delete; batch-inserts new rows per upsert batch |
+| 4.5 | Add BM25 search endpoint to ingestion service | ✅ Done | `GET /search/lexical?q=&collection=&limit=20`; FTS5 MATCH with BM25 rank ordering; returns `{results: [{point_id, collection, url, content, title, vendor}]}` |
+| 4.6 | Add RRF fusion to `ai-agent/main.py` | ✅ Done | `_rrf_merge(k=60)` merges vector hits (with `hit["id"]`) and lexical hits by `point_id`; RRF pool feeds reranker or top-5 fallback; graceful degradation if lexical search unreachable |
+| 4.7 | Update ingestion `requirements.txt` | ✅ Done | Added `docling>=2.0.0`; removed `pymupdf>=1.24.0` |
 
 ---
 

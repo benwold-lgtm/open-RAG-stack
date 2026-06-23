@@ -46,6 +46,11 @@ image:
 #   repository: <YOUR_REGISTRY>/qdrant
 #   pullPolicy: IfNotPresent
 
+# ── reranker ──────────────────────────────────────────────────────────────────
+# image:
+#   repository: <YOUR_REGISTRY>/open-rag-reranker
+#   pullPolicy: IfNotPresent
+
 # ── searxng ───────────────────────────────────────────────────────────────────
 # image:
 #   repository: <YOUR_REGISTRY>/searxng

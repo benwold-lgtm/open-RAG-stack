@@ -3,9 +3,10 @@ import re
 import shutil
 import hashlib
 import asyncio
+import tempfile
 import aiosqlite
 import httpx
-import fitz  # pymupdf
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
 from pydantic import BaseModel
@@ -31,15 +32,22 @@ DB_PATH             = os.getenv("DB_PATH",             "/app/data/ingestion.db")
 FILES_DIR           = os.getenv("FILES_DIR",           "/app/data/files")
 WATCH_DIR           = os.getenv("WATCH_DIR",           "")
 WATCH_POLL_INTERVAL = int(os.getenv("WATCH_POLL_INTERVAL", "60"))
-CHUNK_SIZE          = int(os.getenv("CHUNK_SIZE",          "512"))
-CHUNK_OVERLAP       = int(os.getenv("CHUNK_OVERLAP",       "50"))
-EMBEDDING_DIM       = int(os.getenv("EMBEDDING_DIM",       "768"))
+CHUNK_SIZE               = int(os.getenv("CHUNK_SIZE",          "512"))
+CHUNK_OVERLAP            = int(os.getenv("CHUNK_OVERLAP",       "50"))
+EMBEDDING_DIM            = int(os.getenv("EMBEDDING_DIM",       "768"))
+DOCLING_ARTIFACTS_PATH   = os.getenv("DOCLING_ARTIFACTS_PATH",  "")
 
-SUPPORTED_EXTENSIONS = {"pdf", "txt", "md"}
+SUPPORTED_EXTENSIONS = {"pdf", "docx", "pptx", "txt", "md"}
 
 # ── Database setup ────────────────────────────────────────────────────────────
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
+                point_id UNINDEXED, collection UNINDEXED, url UNINDEXED,
+                content, title, vendor, doc_id UNINDEXED
+            )
+        """)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id           TEXT PRIMARY KEY,
@@ -108,15 +116,8 @@ async def ensure_collection(collection: str):
 
 # ── Text chunking ─────────────────────────────────────────────────────────────
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    words = text.split()
-    chunks = []
-    start = 0
-    while start < len(words):
-        chunk = " ".join(words[start:start + chunk_size])
-        if chunk.strip():
-            chunks.append(chunk)
-        start += chunk_size - overlap
-    return chunks
+    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
+    return [c for c in splitter.split_text(text) if c.strip()]
 
 # ── Web fetcher (Crawl4AI) ────────────────────────────────────────────────────
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -154,26 +155,43 @@ async def fetch_url(url: str) -> tuple[str, str]:
     text = re.sub(r'\s+', ' ', result.markdown or "").strip()
     return title, text
 
+# ── Docling converter (lazy init — loads on first document conversion) ─────────
+_docling_converter = None
+
+def _get_docling():
+    global _docling_converter
+    if _docling_converter is None:
+        from docling.document_converter import DocumentConverter
+        _docling_converter = DocumentConverter()
+    return _docling_converter
+
 # ── Document extractor ────────────────────────────────────────────────────────
 async def extract_document(filename: str, content: bytes) -> tuple[str, str]:
-    """Extract (title, clean_text) from a PDF, txt, or md file."""
+    """Extract (title, clean_text) from a PDF, DOCX, PPTX, txt, or md file."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported file type: .{ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
 
-    if ext == "pdf":
-        doc = fitz.open(stream=content, filetype="pdf")
-        title = (doc.metadata or {}).get("title", "").strip() or filename
-        pages = [page.get_text() for page in doc]
-        doc.close()
-        text = " ".join(pages)
+    if ext in ("pdf", "docx", "pptx"):
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, lambda: _get_docling().convert(tmp_path)
+            )
+            text = result.document.export_to_markdown()
+        finally:
+            os.unlink(tmp_path)
+        text = re.sub(r' {2,}', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text).strip()
     else:
-        title = filename
         text = content.decode("utf-8", errors="replace")
+        text = re.sub(r'\s+', ' ', text).strip()
 
-    text = re.sub(r'\s+', ' ', text).strip()
-    return title, text
+    return filename, text
 
 # ── File storage ──────────────────────────────────────────────────────────────
 def save_file(doc_id: str, filename: str, content: bytes) -> str:
@@ -216,6 +234,10 @@ async def run_pipeline(
 
     await ensure_collection(collection)
 
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM fts WHERE doc_id=?", (doc_id,))
+        await db.commit()
+
     client = get_qdrant()
     client.delete(
         collection_name=collection,
@@ -230,6 +252,7 @@ async def run_pipeline(
         batch_embeddings = await embed_texts(batch_chunks)
 
         points = []
+        fts_rows = []
         for j, (chunk, embedding) in enumerate(zip(batch_chunks, batch_embeddings)):
             point_id = int.from_bytes(
                 hashlib.sha256(f"{doc_id}-{i+j}".encode()).digest()[:8],
@@ -254,7 +277,17 @@ async def run_pipeline(
                     "content_hash":   content_hash,
                 }
             ))
+            fts_rows.append((str(point_id), collection, source, chunk, title, vendor, doc_id))
         client.upsert(collection_name=collection, points=points)
+
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.executemany(
+                "INSERT INTO fts(point_id, collection, url, content, title, vendor, doc_id) "
+                "VALUES (?,?,?,?,?,?,?)",
+                fts_rows
+            )
+            await db.commit()
+
         await asyncio.sleep(0.1)
 
     return len(chunks)
@@ -804,6 +837,36 @@ async def list_collections():
 async def create_collection(request: CollectionCreateRequest):
     await ensure_collection(request.name)
     return {"message": f"Collection '{request.name}' ready"}
+
+@app.get("/search/lexical")
+async def lexical_search(
+    q: str,
+    collection: Optional[str] = None,
+    limit: int = 20,
+):
+    if not q.strip():
+        return {"results": []}
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            if collection:
+                async with db.execute(
+                    "SELECT point_id, collection, url, content, title, vendor "
+                    "FROM fts WHERE fts MATCH ? AND collection = ? ORDER BY rank LIMIT ?",
+                    (q, collection, limit)
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT point_id, collection, url, content, title, vendor "
+                    "FROM fts WHERE fts MATCH ? ORDER BY rank LIMIT ?",
+                    (q, limit)
+                ) as cursor:
+                    rows = await cursor.fetchall()
+        return {"results": [dict(row) for row in rows]}
+    except Exception:
+        return {"results": []}
+
 
 @app.get("/health")
 async def health():

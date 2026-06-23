@@ -50,12 +50,21 @@ spec:
               value: {{ if .Values.watchDir.enabled }}{{ .Values.watchDir.mountPath | quote }}{{ else }}""{{ end }}
             - name: WATCH_POLL_INTERVAL
               value: {{ .Values.watchDir.pollInterval | quote }}
+            {{- if .Values.modelStorage.enabled }}
+            - name: DOCLING_ARTIFACTS_PATH
+              value: "{{ .Values.modelStorage.mountPath }}/docling"
+            {{- end }}
           volumeMounts:
             - name: ingestion-data
               mountPath: /app/data
             {{- if .Values.watchDir.enabled }}
             - name: labfiles
               mountPath: {{ .Values.watchDir.mountPath }}
+            {{- end }}
+            {{- if .Values.modelStorage.enabled }}
+            - name: model-storage
+              mountPath: {{ .Values.modelStorage.mountPath }}
+              readOnly: true
             {{- end }}
           livenessProbe:
             httpGet:
@@ -85,4 +94,9 @@ spec:
           hostPath:
             path: {{ .Values.watchDir.hostPath }}
             type: Directory
+        {{- end }}
+        {{- if .Values.modelStorage.enabled }}
+        - name: model-storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.modelStorage.pvcName }}
         {{- end }}

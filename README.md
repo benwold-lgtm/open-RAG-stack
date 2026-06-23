@@ -106,7 +106,7 @@ See [Quick start](#quick-start) below for the full, step-by-step version (model 
 1. User sends a message in **Open-WebUI**
 2. Open-WebUI forwards it to **ai-agent** via the OpenAI-compatible `/v1/chat/completions` endpoint
 3. ai-agent decides which tool to call:
-   - `rag_search` — embeds the query, searches all Qdrant collections, returns the top-k chunks
+   - `rag_search` — rewrites the query, embeds it, searches all Qdrant collections for top-20 candidates, reranks via cross-encoder to top-5
    - `web_search` — calls your configured web search provider (Brave, SearXNG, Serper, or Tavily)
 4. Tool results are injected back into the LLM context
 5. **vllm-server** generates the final response
@@ -131,6 +131,7 @@ Use `scripts/link-scrape.sh` to ingest a URL, or POST directly to the ingestion 
 | `ai-agent` | `ghcr.io/benwold-lgtm/open-rag-ai-agent` | 30081 | RAG agent — calls vLLM + Qdrant |
 | `embedding` | `ghcr.io/benwold-lgtm/open-rag-embedding` | 30082 | Embedding service (nomic-embed-text-v1.5) |
 | `ingestion` | `ghcr.io/benwold-lgtm/open-rag-ingestion` | 30083 | Document ingestion pipeline |
+| `reranker` | `ghcr.io/benwold-lgtm/open-rag-reranker` | 30084 | Cross-encoder reranker (BAAI/bge-reranker-v2-m3) |
 | `vllm-server` | `vllm/vllm-openai` | 30000 | LLM inference (OpenAI-compatible) |
 | `qdrant` | `qdrant/qdrant` | 30333 | Vector database |
 

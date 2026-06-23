@@ -65,6 +65,10 @@ spec:
                   key: QDRANT_API_KEY
             - name: EMBEDDING_URL
               value: {{ .Values.embedding.url | quote }}
+            - name: INGESTION_URL
+              value: {{ .Values.ingestion.url | quote }}
+            - name: RERANKER_URL
+              value: {{ .Values.reranker.url | quote }}
           livenessProbe:
             httpGet:
               path: /health
