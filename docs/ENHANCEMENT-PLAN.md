@@ -1,15 +1,15 @@
 # Open-RAG-Stack Enhancement Plan
 ## Goal: NVIDIA Blueprint Parity — Fully Internal Deployment
 
-**Last Updated:** 2026-06-23  
-**Status:** Planning — not yet started  
-**Owner:** Ben Wold
+**Last Updated:** 2026-06-23
+**Status:** In Progress
+**Maintained by:** open-RAG-stack contributors
 
 ---
 
 ## Background
 
-Open-RAG-Stack is a fully open-source RAG pipeline designed so anyone can run it for free (outside of a subscription LLM). Testing was conducted on a personal RTX 3090 (bengpu1, 192.168.1.112) to validate functionality. The production target for a medium business deployment is one or more **NVIDIA L40S GPUs** (48 GB VRAM each), which provide the headroom needed to run a 70B-class LLM alongside embedding and reranker services simultaneously.
+Open-RAG-Stack is a fully open-source RAG pipeline designed so anyone can run it for free (outside of a subscription LLM). Functionality was validated on a single RTX 3090 (24 GB VRAM). The production target for a medium business deployment is one or more **NVIDIA L40S GPUs** (48 GB VRAM each), which provide the headroom needed to run a 70B-class LLM alongside embedding and reranker services simultaneously.
 
 The NVIDIA Enterprise RAG Blueprint (build.nvidia.com) was used as a reference for feature parity. That blueprint uses proprietary NIM microservices (Nemotron LLMs, nemotron-embed, nemotron-rerank), Elasticsearch as the default vector/search backend, and LangChain + LangGraph for orchestration. This plan achieves the same capabilities using open-source equivalents.
 
@@ -30,30 +30,36 @@ The NVIDIA Enterprise RAG Blueprint (build.nvidia.com) was used as a reference f
 | Multi-chunk per source | ❌ 1 chunk/URL max | ✅ 3 chunks/URL max |
 | Query rewriting | ❌ none | ✅ uses existing LLM |
 | Web search | ⚠️ Brave/Serper/Tavily (cloud) | ✅ SearXNG (self-hosted) |
-| Model hosting | ⚠️ downloads at runtime | ✅ pre-cached to NFS |
-| Container images | ⚠️ pulls from GHCR/DockerHub | ✅ mirrored internally |
+| Model hosting | ⚠️ downloads at runtime | ✅ pre-cached to local/NFS path |
+| Container images | ⚠️ pulls from GHCR/DockerHub | ✅ mirrored to internal registry |
 | Multi-index search | ⚠️ all collections, no routing | ✅ keep (routing is future work) |
 
 ---
 
-## Hardware Context
+## Hardware Sizing Guide
 
-| Host | Role | GPU | Notes |
+This stack is hardware-agnostic — any CUDA-capable GPU node works. The table below covers two reference configurations.
+
+| Configuration | GPU | VRAM | Suitable For |
 |---|---|---|---|
-| `bengpu1` (192.168.1.112) | Test platform | RTX 3090 (24 GB VRAM) | Functional testing only — not production scale |
-| Production target | Medium business | NVIDIA L40S × 1–2 (48 GB VRAM each) | Can run 70B LLM + embedding + reranker on single card |
+| Development / testing | RTX 3090 | 24 GB | 7B–14B models; functional validation |
+| Production (medium business) | NVIDIA L40S × 1 | 48 GB | 70B models + embedding + reranker on one card |
+| Production (high throughput) | NVIDIA L40S × 2+ | 96 GB+ | 70B models with tensor parallelism |
 
-**L40S GPU budget (single card, 48 GB VRAM):**
+**L40S single-card GPU budget (48 GB VRAM):**
 - vLLM with Llama-3.3-70B-Instruct Q4: ~35 GB
 - Embedding service (nomic-embed-text-v1.5): ~0.5 GB
 - Reranker service (bge-reranker-v2-m3): ~1.5 GB
 - **Total: ~37 GB — fits with headroom**
 
-**RTX 3090 GPU budget (test, 24 GB VRAM):**
+**RTX 3090 GPU budget (dev/test, 24 GB VRAM):**
 - vLLM with 8B model Q4: ~8 GB
 - Embedding: ~0.5 GB
-- Reranker: ~1.5 GB (or CPU fallback)
+- Reranker: ~1.5 GB (or CPU fallback to free VRAM for LLM)
 - **Total: ~10 GB — fits for testing**
+
+> To configure which node runs GPU workloads, set `nodeSelector` in each service's `values.yaml`.
+> See `ai-stack/charts/*/values.yaml` — the field is `nodeSelector.kubernetes.io/hostname`.
 
 ---
 
@@ -66,15 +72,15 @@ The NVIDIA Enterprise RAG Blueprint (build.nvidia.com) was used as a reference f
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 1.1 | Pre-download all models to NFS (192.168.1.250) | ✅ Done | `scripts/download-models.sh` — run on bengpu1 with NFS mounted. LLM skipped pending model selection. |
-| 1.2 | Add `HF_HOME` env var pointing to NFS in all service Helm charts | ⬜ Pending | Prevents HuggingFace calls at pod startup |
-| 1.3 | Replace Brave/Serper/Tavily with SearXNG | ⬜ Pending | SearXNG option already in ai-agent/main.py (commented out at line 31) |
+| 1.1 | Pre-download all models to model storage path | ✅ Done | `scripts/download-models.sh` — set `MODEL_DIR` to your NFS mount or local path. LLM skipped pending model selection. |
+| 1.2 | Add `HF_HOME` env var pointing to model storage in all service Helm charts | ⬜ Pending | Prevents HuggingFace calls at pod startup |
+| 1.3 | Replace Brave/Serper/Tavily with SearXNG | ⬜ Pending | SearXNG option already in `ai-agent/main.py` (commented out at line 31) |
 | 1.4 | Deploy SearXNG to K8s (new Helm chart) | ⬜ Pending | Can restrict to internal sources if needed, or disable web_search entirely |
-| 1.5 | Mirror container images to internal registry | ⬜ Pending | Harbor on vmenuc is recommended path; fallback is imagePullPolicy: Never |
-| 1.6 | Verify ingestion Dockerfile bakes Playwright at build (not runtime) | ⬜ Pending | Lines 12-13 of ingestion/Dockerfile — confirm no runtime download |
-| 1.7 | Disable vLLM genesis patches (avoid GitHub clone at startup) | ⬜ Pending | Set `patches.enabled: false` in vllm-server/values.yaml — likely already false |
+| 1.5 | Mirror container images to internal registry | ⬜ Pending | Harbor is the recommended path; fallback is `imagePullPolicy: Never` on pre-pulled nodes |
+| 1.6 | Verify ingestion Dockerfile bakes Playwright at build (not runtime) | ⬜ Pending | Lines 12-13 of `ingestion/Dockerfile` — confirm no runtime download |
+| 1.7 | Disable vLLM genesis patches (avoid GitHub clone at startup) | ⬜ Pending | Set `patches.enabled: false` in `vllm-server/values.yaml` — default is already false |
 
-**Verification:** After Phase 1, deploy to a node with network blocked. All pods must reach Running state and serve requests.
+**Verification:** After Phase 1, deploy to a node with outbound network blocked. All pods must reach `Running` state and serve requests without errors.
 
 ---
 
@@ -98,7 +104,7 @@ The NVIDIA Enterprise RAG Blueprint (build.nvidia.com) was used as a reference f
 | 3.1 | Create `services/reranker/main.py` | ⬜ Pending | FastAPI, loads `BAAI/bge-reranker-v2-m3` via CrossEncoder |
 | 3.2 | Create `services/reranker/requirements.txt` | ⬜ Pending | sentence-transformers, fastapi, torch, uvicorn |
 | 3.3 | Create `services/reranker/Dockerfile` | ⬜ Pending | Match pattern of embedding service Dockerfile |
-| 3.4 | Create `ai-stack/charts/reranker/` Helm chart | ⬜ Pending | Same structure as embedding chart; GPU nodeSelector for bengpu1/L40S |
+| 3.4 | Create `ai-stack/charts/reranker/` Helm chart | ⬜ Pending | Same structure as embedding chart; set `nodeSelector` to your GPU node |
 | 3.5 | Wire reranker into `ai-agent/main.py` retrieval flow | ⬜ Pending | After Qdrant top-20 → call reranker → take top-5 → assemble LLM context |
 | 3.6 | Add CI workflow `.github/workflows/build-reranker.yml` | ⬜ Pending | Match existing build workflows |
 | 3.7 | Update `README.md` architecture section | ⬜ Pending | Add reranker to component list and diagram |
@@ -117,7 +123,7 @@ POST /rerank
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 4.1 | Replace PyMuPDF with Docling in `ingestion/main.py` | ⬜ Pending | Lines 158-176; add DOCX/PPTX support; update SUPPORTED_EXTENSIONS |
-| 4.2 | Pre-download Docling layout models to NFS | ⬜ Pending | Set `DOCLING_MODELS_PATH=/mnt/nfs/models/docling` env var |
+| 4.2 | Wire `DOCLING_ARTIFACTS_PATH` env var into ingestion Helm chart | ⬜ Pending | Point to `<MODEL_DIR>/docling` on your model storage |
 | 4.3 | Add SQLite FTS5 virtual table to `ingestion.db` | ⬜ Pending | Schema: `point_id, collection, content, title, vendor` |
 | 4.4 | Populate FTS5 table alongside every Qdrant upsert | ⬜ Pending | `ingestion/main.py` — add INSERT to FTS5 table in upsert loop |
 | 4.5 | Add BM25 search endpoint to ingestion service | ⬜ Pending | `GET /search/lexical?q=...&collection=...&limit=20` |
@@ -136,7 +142,7 @@ POST /rerank
 | 5.3 | Re-measure after Phase 2 (chunking + dedup + query rewriting) | ⬜ Pending | |
 | 5.4 | Re-measure after Phase 3 (reranker) | ⬜ Pending | Expect 15–25% improvement |
 | 5.5 | Re-measure after Phase 4 (hybrid search + Docling) | ⬜ Pending | |
-| 5.6 | Load test on L40S: measure p95 latency per query end-to-end | ⬜ Pending | Target: <3s p95 for typical query |
+| 5.6 | Load test on target GPU: measure p95 latency per query end-to-end | ⬜ Pending | Target: <3s p95 for typical query |
 
 ---
 
@@ -147,7 +153,7 @@ POST /rerank
 | 2026-06-23 | Use SQLite FTS5 for BM25 (not OpenSearch or Qdrant sparse) | SQLite already present in ingestion service; no new infrastructure; sufficient for medium business scale |
 | 2026-06-23 | Use BAAI/bge-reranker-v2-m3 (not cross-encoder/ms-marco-MiniLM) | Better multilingual support, higher benchmark scores; marginal VRAM cost difference |
 | 2026-06-23 | Use IBM Docling (not Unstructured) | Fully open-source, no API tier; better table extraction; actively maintained by IBM |
-| 2026-06-23 | Production target is L40S, not RTX 3090 | RTX 3090 is test-only; L40S (48 GB VRAM) is required for 70B LLM + embedding + reranker on single card |
+| 2026-06-23 | Production target is L40S (not RTX 3090) | RTX 3090 is dev/test only; L40S (48 GB VRAM) fits 70B LLM + embedding + reranker on a single card |
 | 2026-06-23 | Keep Qdrant as vector store (not migrate to OpenSearch) | Already deployed, no new infrastructure; SQLite FTS5 covers the lexical gap |
 
 ---
@@ -157,8 +163,8 @@ POST /rerank
 - [ ] What LLM is the production target? (Llama 3.3 70B? Qwen3 72B? Custom fine-tune?) — affects vLLM Helm values and GPU sizing
 - [ ] Is web search (SearXNG) needed in production, or will RAG be strictly document-only?
 - [ ] Should Docling's multimodal features (chart/image understanding) be enabled? Requires a vision model alongside the LLM.
-- [ ] Will Harbor be set up for the internal container registry, or use imagePullPolicy: Never?
-- [ ] How many L40S GPUs will be in the production cluster, and will they be in one node or multiple?
+- [ ] Will Harbor be set up for the internal container registry, or use `imagePullPolicy: Never`?
+- [ ] How many L40S GPUs will be in the production cluster, and will they be in one node or spread across nodes?
 
 ---
 
@@ -182,14 +188,21 @@ POST /rerank
 | `open-webui` | Open WebUI | 80 | User interface |
 | `searxng` | SearXNG (new) | 8080 | Self-hosted web search |
 
-### Model Files Required on NFS (192.168.1.250:/models)
+### Model Storage Requirements
 
-| Model | Size (approx) | Used By | Download Command |
+Run `scripts/download-models.sh` once on any internet-connected machine with your model storage mounted.
+Set `MODEL_DIR` to your NFS mount point or local path (default: `/mnt/nfs/models`).
+
+| Model | Size (approx) | Used By | Notes |
 |---|---|---|---|
-| `nomic-ai/nomic-embed-text-v1.5` | ~550 MB | embedding service | `huggingface-cli download nomic-ai/nomic-embed-text-v1.5` |
-| `BAAI/bge-reranker-v2-m3` | ~1.1 GB | reranker service | `huggingface-cli download BAAI/bge-reranker-v2-m3` |
-| LLM (TBD) | 4–70 GB | vllm-server | Depends on model choice |
-| Docling layout models | ~1.5 GB | ingestion service | `python -c "from docling.document_converter import DocumentConverter; DocumentConverter()"` |
+| `nomic-ai/nomic-embed-text-v1.5` | ~550 MB | embedding service | Downloaded and verified by download-models.sh |
+| `BAAI/bge-reranker-v2-m3` | ~1.1 GB | reranker service | Downloaded and verified by download-models.sh |
+| Docling layout models | ~1.5 GB | ingestion service | Downloaded and verified by download-models.sh |
+| LLM (your choice) | 4–70 GB | vllm-server | Download separately; set `model.name` in `vllm-server/values.yaml` |
+
+After downloading, set these env vars in your Helm deployments (Phase 1.2):
+- `HF_HOME=<MODEL_DIR>/huggingface` — all services
+- `DOCLING_ARTIFACTS_PATH=<MODEL_DIR>/docling` — ingestion service only
 
 ---
 

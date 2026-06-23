@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Download all models required by open-RAG-stack to a local or NFS path.
-# Run this ONCE on a machine with internet access (e.g. bengpu1 with NFS mounted).
-# After this script completes, the stack runs with zero external network calls.
+# Run this ONCE on any machine with internet access and your model storage mounted.
+# After this script completes, the stack runs with zero external network calls at runtime.
 #
 # Usage:
 #   ./scripts/download-models.sh                        # uses default MODEL_DIR
