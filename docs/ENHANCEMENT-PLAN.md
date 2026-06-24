@@ -227,14 +227,18 @@ POST /rerank
 ### Phase 5: Validation & Benchmarking
 > Confirm improvements are measurable, not just theoretical.
 
+> **Reframed 2026-06-24.** The original 5.2–5.5 measured retrieval "before/after each phase," but Phases 2–4 are all already shipped — there is no pre-phase baseline left to capture. Instead we measure the **current full system** and **ablate** components using the toggles already built (`RERANKER_URL`, hybrid lexical, query rewriting) to attribute each one's contribution. Decisions: eval set built **hybrid** (LLM-generated candidates → human-curated); metrics = **retrieval + latency** (answer-faithfulness deferred). Gold = the chunk a question was generated from (single-gold hit@k — a relevant-but-not-gold chunk counts as a miss, slightly understating quality, fine for relative/ablation comparison). Primary k=5 (final context post-rerank); also report @20 (pre-rerank pool).
+>
+> **Tooling:** stdlib-only Python scripts in `eval/` (committed). Generated Q&A and results stay **local and gitignored** — they contain internal-doc content, which must not land in the public repo.
+
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 5.1 | Define evaluation dataset (20–50 Q&A pairs from internal docs) | ⬜ Pending | Cover: factual lookup, keyword-heavy, multi-doc, table data |
-| 5.2 | Baseline: measure retrieval accuracy before changes | ⬜ Pending | Record hit@5 and MRR@5 |
-| 5.3 | Re-measure after Phase 2 (chunking + dedup + query rewriting) | ⬜ Pending | |
-| 5.4 | Re-measure after Phase 3 (reranker) | ⬜ Pending | Expect 15–25% improvement |
-| 5.5 | Re-measure after Phase 4 (hybrid search + Docling) | ⬜ Pending | |
-| 5.6 | Load test on target GPU: measure p95 latency per query end-to-end | ⬜ Pending | Target: <3s p95 for typical query |
+| 5.1 | Corpus inventory & sanity check | ⬜ Pending | Count docs / chunks / Qdrant points per collection; flag docs with `chunk_count` 0 or status `unchanged`. Confirms the "fast ingest" genuinely embedded content |
+| 5.2 | Generate + curate eval set (hybrid) | ⬜ Pending | `eval/gen_eval_set.py` samples chunks across docs → LLM writes one question per chunk (gold = source `point_id`/page) → you curate candidates down to 20–50 in `eval/dataset.jsonl` |
+| 5.3 | Retrieval metrics — current full system | ⬜ Pending | `eval/run_eval.py`: hit@5 + MRR@5 (final context), plus hit@20 (pre-rerank pool) |
+| 5.4 | Ablations | ⬜ Pending | Re-run with `--no-rerank`, `--no-hybrid`, `--no-rewrite`, vector-only → table attributing each component's lift |
+| 5.5 | Latency | ⬜ Pending | `eval/load_test.py`: retrieval-only vs end-to-end p50/p95/p99 at small concurrency. Retrieval target <3s p95 (easily met); end-to-end is generation-bound on the 8B/3090 — reported separately |
+| 5.6 | Record results + sizing call | ⬜ Pending | Write the metrics table into this doc; recommend "3090 good enough" vs "L40S warranted" from accuracy + latency |
 
 ---
 

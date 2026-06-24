@@ -11,6 +11,10 @@ graphify-out/
 # Draw.io backup files
 *.bkp
 
+# Phase 5 eval data — contains internal-doc content, keep local (scripts only are committed)
+eval/dataset*.jsonl
+eval/results*
+
 # OS
 .DS_Store
 Thumbs.db
