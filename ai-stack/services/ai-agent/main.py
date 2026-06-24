@@ -22,6 +22,9 @@ INGESTION_URL  = os.getenv("INGESTION_URL", "http://ingestion.ingestion.svc.clus
 # Browser-reachable base for page-image links (e.g. http://<host-ip>:8002).
 # Empty = text-only page citations (no inline images). See ENHANCEMENT-PLAN Phase 4d.
 INGESTION_PUBLIC_URL = os.getenv("INGESTION_PUBLIC_URL", "")
+# Verified citations: ask the model for verbatim supporting quotes and check each
+# against the retrieved chunk text. Empty/false = off. See ENHANCEMENT-PLAN Phase 4e.
+CITE_VERIFY = os.getenv("CITE_VERIFY", "true").lower() in ("1", "true", "yes")
 
 # ── Web Search Provider ───────────────────────────────────────────────────────
 # Set WEB_SEARCH_PROVIDER in the ai-agent Helm chart values.yaml. Options:
@@ -279,6 +282,7 @@ async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
             "doc_id":      payload.get("doc_id", ""),
             "page":        payload.get("page"),
             "has_image":   payload.get("has_image", False),
+            "content":     payload.get("content", ""),
         })
 
     return "\n\n---\n\n".join(parts), sources
@@ -354,6 +358,17 @@ When formulating your answer after receiving tool results:
 - If the retrieved context does not contain enough information to answer, say so explicitly.
 - Do NOT use your training knowledge to supplement the retrieved context.
 - Do NOT fabricate quotes or specific details not present in the retrieved context."""
+
+    if CITE_VERIFY:
+        system_prompt += """
+
+After your answer, on a new line, output a block of the verbatim quotes from the
+retrieved context that support your key claims, in exactly this format:
+[[CITATIONS]]
+"first verbatim quote copied word-for-word from the context"
+"second verbatim quote"
+Include 1 to 4 quotes, each at most ~30 words, copied exactly from the retrieved
+context. If a claim has no verbatim support in the context, do not invent a quote."""
 
     if not messages or messages[0].get("role") != "system":
         messages = [{"role": "system", "content": system_prompt}] + messages
@@ -451,6 +466,50 @@ def format_sources(sources: list[dict]) -> str:
         md += "\n\n**Referenced pages:**\n" + "\n\n".join(images)
     return md
 
+# ── Verified citations ────────────────────────────────────────────────────────
+def _normalize(text: str) -> str:
+    """Lowercase, unify unicode dashes/quotes, collapse whitespace — for matching."""
+    for a, b in (("‑", "-"), ("–", "-"), ("—", "-"),
+                 ("‘", "'"), ("’", "'"), ("“", '"'), ("”", '"')):
+        text = text.replace(a, b)
+    return re.sub(r'\s+', ' ', text).strip().lower()
+
+def extract_citations(content: str) -> tuple[str, list[str]]:
+    """Split model output into (answer without the quote block, [verbatim quotes])."""
+    m = re.search(r'\[\[CITATIONS\]\]\s*(.*)$', content, re.DOTALL)
+    if not m:
+        return content, []
+    answer = content[:m.start()].rstrip()
+    quotes = [q.strip() for q in re.findall(r'"([^"]+)"', m.group(1)) if q.strip()]
+    return answer, quotes
+
+def verify_citations(quotes: list[str], sources: list[dict]) -> list[dict]:
+    """Deterministically check each quote against retrieved chunk text.
+    Returns [{quote, verified, page}] — page is the matched source's page."""
+    norm_sources = [(s, _normalize(s.get("content", ""))) for s in sources]
+    results = []
+    for q in quotes:
+        nq = _normalize(q)
+        match = next((s for s, nc in norm_sources if nq and nq in nc), None)
+        results.append({
+            "quote": q,
+            "verified": match is not None,
+            "page": match.get("page") if match else None,
+        })
+    return results
+
+def format_citations(verifications: list[dict]) -> str:
+    if not verifications:
+        return ""
+    lines = []
+    for v in verifications:
+        if v["verified"]:
+            loc = f" — p.{v['page']}" if v.get("page") is not None else ""
+            lines.append(f'- ✓ "{v["quote"]}"{loc}')
+        else:
+            lines.append(f'- ⚠ "{v["quote"]}" — not found in retrieved sources')
+    return "\n\n**Verified quotes:**\n" + "\n".join(lines)
+
 # ── OpenAI-Compatible Endpoint ────────────────────────────────────────────────
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
@@ -464,6 +523,15 @@ async def chat_completions(request: ChatCompletionRequest):
             max_tokens=request.max_tokens,
             top_p=request.top_p,
         )
+
+        citations: list[dict] = []
+        if CITE_VERIFY:
+            final_response, quotes = extract_citations(final_response)
+            # Only verify against retrieved chunks; skip for web-search-only answers.
+            if sources:
+                citations = verify_citations(quotes, sources)
+                if citations:
+                    final_response += format_citations(citations)
 
         if sources:
             final_response += format_sources(sources)
@@ -491,7 +559,8 @@ async def chat_completions(request: ChatCompletionRequest):
                 "completion_tokens": 0,
                 "total_tokens": 0
             },
-            "sources": sources
+            "sources": sources,
+            "citations": citations
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -177,6 +177,9 @@ services:
       # Browser-reachable base for inline page-image citations (set in .env, e.g.
       # http://<host-ip>:8002). Empty = text-only page citations.
       INGESTION_PUBLIC_URL: ${INGESTION_PUBLIC_URL:-}
+      # Verified citations: model emits verbatim quotes, agent checks them against
+      # retrieved chunks and flags unverified ones. Set "false" to disable.
+      CITE_VERIFY: "true"
       WEB_SEARCH_PROVIDER: "none"
     ports:
       - "8004:8000"

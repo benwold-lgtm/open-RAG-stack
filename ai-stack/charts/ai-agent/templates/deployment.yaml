@@ -69,6 +69,8 @@ spec:
               value: {{ .Values.ingestion.url | quote }}
             - name: INGESTION_PUBLIC_URL
               value: {{ .Values.ingestion.publicUrl | default "" | quote }}
+            - name: CITE_VERIFY
+              value: {{ .Values.citeVerify | default "true" | quote }}
             - name: RERANKER_URL
               value: {{ .Values.reranker.url | quote }}
           livenessProbe:

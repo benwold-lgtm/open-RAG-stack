@@ -28,6 +28,10 @@ ingestion:
   # Empty = text-only page citations. Must be reachable from the user's browser.
   publicUrl: ""
 
+# Verified citations: model emits verbatim quotes; agent checks them against the
+# retrieved chunks and flags unverified ones. Set false to disable.
+citeVerify: "true"
+
 resources:
   requests:
     memory: "256Mi"

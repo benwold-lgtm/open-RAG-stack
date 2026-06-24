@@ -201,6 +201,29 @@ POST /rerank
 
 ---
 
+### Phase 4e: Verified Citations (quote → source match)
+
+> **Context.** Phase 4d surfaces *which* page an answer came from. This phase adds a defensible accuracy check: the model emits the verbatim quotes it relied on, and the agent **deterministically verifies** each against the retrieved chunk text. A quote that doesn't match the sources is **flagged** (not silently trusted) — catching fabricated or paraphrased-as-quote citations. This is the "don't trust, verify" property that the proprietary `citations` API feature gives for free but vLLM does not.
+>
+> **Decisions (stated, not silently chosen):**
+> - **Failure = flag, never delete.** Unverified quotes get a ⚠ marker; the answer text is never mangled. Transparency over silent edits for accuracy-critical use.
+> - **Match = deterministic normalized substring** (lowercased, collapsed whitespace, unified unicode dashes/quotes) against the retrieved chunk content. No fuzzy matching (avoids false "verified").
+> - **Graceful degradation.** If the model emits no quote block (the 8B is not perfectly reliable at this), output is unchanged — no verification section, nothing breaks.
+> - **Toggle** `CITE_VERIFY` (default on) to disable if noisy on a small model.
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 4e.1 | Carry chunk `content` into `sources` | ✅ Done | `run_rag_search` — match corpus (from the Qdrant payload) |
+| 4e.2 | `CITE_VERIFY` config + prompt instruction | ✅ Done | When on, appends a `[[CITATIONS]]` block instruction to the system prompt asking for verbatim supporting quotes |
+| 4e.3 | Parse + verify helpers | ✅ Done | `extract_citations()`, `verify_citations()` (normalized substring match per source → page attribution), `format_citations()` (✓/⚠ render) |
+| 4e.4 | Integrate in `chat_completions` | ✅ Done | Strips quote block from the visible answer; appends "Verified quotes" (✓ "…" — p.N / ⚠ "…" — not found); adds `citations` to response JSON. Verification skipped for web-only answers (no RAG sources) |
+| 4e.5 | Wire config | ✅ Done | `docker-compose.yml` + ai-agent Helm chart (`citeVerify`/`CITE_VERIFY`) |
+| 4e.6 | On-node verification | ⬜ Pending | After CI rebuilds `open-rag-ai-agent:latest`: ask a doc question → answer ends with ✓-verified quotes attributed to pages; confirm an unsupported claim surfaces ⚠ |
+
+**Known limitation:** small models often *paraphrase* rather than quote verbatim, which will show as ⚠ even when the claim is sound — the flag means "not verbatim-verifiable," not "false." Larger models (L40S) quote more faithfully. The `Sources`/page citations from Phase 4d remain the always-on provenance; verified quotes are an additional, best-effort integrity layer.
+
+---
+
 ### Phase 5: Validation & Benchmarking
 > Confirm improvements are measurable, not just theoretical.
 
