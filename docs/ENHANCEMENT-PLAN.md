@@ -168,7 +168,7 @@ POST /rerank
 | 4c.5 | Page-image render endpoint | ✅ Done | `GET /documents/{id}/pages/{n}/image` renders from the stored file via `fitz` → PNG; no PNG persisted |
 | 4c.6 | OCR config env vars | ✅ Done | `OCR_ENABLED=true`, `OCR_MIN_CHARS=100`, `OCR_DPI=200` — added to `docker-compose.yml` + ingestion chart (`config.ocr*`) |
 | 4c.7 | Remove vestigial Docling wiring | ✅ Done | Removed `DOCLING_ARTIFACTS_PATH` + `modelStorage` block (compose, chart deployment/values), Docling download from `scripts/download-models.sh`, and `.env.example` docling layout note |
-| 4c.8 | CI build + on-node verification | ⬜ Pending | Drop an image-rich PDF in rag-admin → reaches `completed`; diagram page findable by a label; image endpoint returns the page |
+| 4c.8 | CI build + on-node verification | ✅ Done | Verified 2026-06-24 on bengpu1 with a born-digital Dell white paper: status `completed`, 72 chunks, lexical search returns figure-adjacent content, page-image endpoint renders PNGs. Born-digital text path confirmed; OCR-on-scanned-page path not yet exercised (this PDF had a full text layer) — spot-check later with an image-only/scanned PDF. |
 
 **Deliberately deferred (follow-on):**
 - Surfacing the page image + page citation in the chat UI (ai-agent context formatting + open-webui rendering).
