@@ -131,8 +131,10 @@ services:
       - "/models/huggingface/hub"
       - "--max-model-len"
       - "8192"
+      # Default 0.70 leaves room for embedding + reranker on the same GPU.
+      # Bump toward 0.90 on a dedicated/larger card (e.g. L40S) via VLLM_GPU_UTIL in .env.
       - "--gpu-memory-utilization"
-      - "0.85"
+      - "${VLLM_GPU_UTIL:-0.70}"
       - "--max-num-seqs"
       - "4"
     environment:
