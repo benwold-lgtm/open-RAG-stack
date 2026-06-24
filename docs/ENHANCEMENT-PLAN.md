@@ -192,7 +192,7 @@ POST /rerank
 | 4d.2 | Add `INGESTION_PUBLIC_URL` config | ✅ Done | `ai-agent/main.py`; default `""` = text-only citations |
 | 4d.3 | Enriched Sources renderer | ✅ Done | `format_sources()` — dedup by `(doc_id/url, page)`; append `— p.{page}`; emit a "Referenced pages" block with inline `![](…/pages/{n}/image)` only when `has_image` + `page` + `INGESTION_PUBLIC_URL` are all present |
 | 4d.4 | Wire config | ✅ Done | `docker-compose.yml` (`${INGESTION_PUBLIC_URL:-}`), `.env.example` (commented, `<host-ip>` placeholder), ai-agent Helm chart (`ingestion.publicUrl`) |
-| 4d.5 | On-node verification | ⬜ Pending | After CI rebuilds `open-rag-ai-agent:latest`: pull + recreate ai-agent; set `INGESTION_PUBLIC_URL` in `.env`; ask a question that hits an image page → answer shows `p.N` and the diagram renders inline |
+| 4d.5 | On-node verification | ✅ Done | Verified 2026-06-24 on bengpu1: agent answer shows `— p.N` citations; only the `has_image:true` page (p.11) emits a "Referenced pages" inline image; `sources[]` carries `doc_id`/`page`/`has_image`; dedup collapses chunks to distinct pages. Final visual confirmation = image renders inline in Open WebUI. (Also fixed: vLLM `gpu-memory-utilization` 0.85→0.70 default — it shares GPU 0 with embedding+reranker; see `VLLM_GPU_UTIL`.) |
 
 **Deferred (separate follow-ons):**
 - Inline `[1]`/`[2]` citation markers tied to individual claims, and the verified-quote-matching layer — both belong to the citations-accuracy work, not this UI-surfacing task.
