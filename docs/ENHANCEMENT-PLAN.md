@@ -237,8 +237,8 @@ POST /rerank
 | 5.2 | Generate + curate eval set (hybrid) | ✅ Done | 61-question curated set (`eval/dataset.jsonl`, gitignored), LLM-generated from sampled chunks across the 28 docs |
 | 5.3 | Retrieval metrics — current full system | ✅ Done | Full system: **hit@5 0.738, MRR@5 0.634, hit@20 0.738** (see Results below) |
 | 5.4 | Ablations | ✅ Done | Reranker is the only lever with lift (+0.066 hit@5 / +0.098 MRR). Hybrid & query-rewrite neutral on this synthetic set (caveat: paraphrase questions favour dense retrieval). See Results |
-| 5.5 | Latency | ⬜ Pending | `eval/load_test.py`: retrieval-only vs end-to-end p50/p95/p99 at small concurrency |
-| 5.6 | Record results + sizing call | ⬜ Pending | After latency: recommend "3090 good enough" vs "L40S warranted" |
+| 5.5 | Latency | ✅ Done | retrieval p95 **0.77s** (target <3s crushed); e2e p95 **8.75s** / p50 5.49s — generation-bound (8B, ~2–3 LLM calls/query, concurrency 4) |
+| 5.6 | Record results + sizing call | ✅ Done | See Conclusions below — 3090 fine for retrieval + single-user; L40S warranted for answer latency/throughput/model quality |
 
 **Results — retrieval ablation (2026-06-24, n=61, k=5):**
 
@@ -250,7 +250,26 @@ POST /rerank
 | −rerank | 0.672 | 0.536 | 0.738 |
 | dense-only | 0.672 | 0.517 | 0.738 |
 
-Reading: (1) **reranker earns its place** — the only component whose removal moves the metric. (2) **hybrid + query-rewrite are neutral here** — kept anyway (cheap; help real keyword queries, which this synthetic set under-represents since LLM questions paraphrase the source chunk → favour dense retrieval). (3) **`hit@20` is flat at 0.738 across all configs and equals full `hit@5`** → the reranker already promotes every gold-in-pool chunk into the top-5; the ceiling is **first-stage recall**, not reranking. (4) **0.738 is understated** by single-gold scoring on a topically-redundant 28-doc corpus (a question is often answerable by a non-gold chunk that's scored as a miss). Follow-up experiments to separate true recall gap from label strictness: page-level match credit, and a larger top-k pool.
+Reading: (1) **reranker earns its place** — the only component whose removal moves the metric. (2) **`hit@20` is flat at 0.738 across all configs and equals full `hit@5`** → the reranker already promotes every gold-in-pool chunk into the top-5; the ceiling is **first-stage recall**, not reranking.
+
+**Follow-up diagnostics (2026-06-24):**
+- **Page-level match** (`--match page`): hit@5 0.738 → **0.770** (+0.03 only). The recall gap is *real*, not a single-gold scoring artifact — most misses are genuine, not "right page, wrong chunk."
+- **Larger pool** (`--top-k 40`): hit@40 = **0.738**, identical to hit@20 → widening the first-stage pool does nothing; missed chunks aren't in ranks 21–40 either.
+- **Query rewriting is net-negative**: at top_k=40, `-rewrite` scored **0.754 > 0.738** full. Rewriting a natural question into keyword text embeds *worse* with nomic (trained on natural-language queries). Candidate to disable / make optional — validate on real multi-turn queries first (rewrite may still help pronoun/acronym resolution this single-shot synthetic set doesn't capture).
+- **Hybrid lexical**: neutral on this synthetic set; kept (cheap, helps real keyword queries the synthetic set under-represents).
+
+**Results — latency (2026-06-24, concurrency 4, 40 requests):**
+
+| path | p50 | p95 | p99 | throughput |
+|---|---|---|---|---|
+| retrieval-only | 0.60s | 0.77s | 0.81s | 6.8 req/s |
+| end-to-end | 5.49s | 8.75s | 10.48s | 0.72 req/s |
+
+**Phase 5 conclusions & sizing call:**
+- **Retrieval is fast and the GPU is not its bottleneck** — sub-second p95 on the 3090. The quality ceiling is **first-stage recall (~0.74 chunk / 0.77 page)**, which is an *embedding/chunking* problem, not a hardware or reranker one. Biggest quality lever next: better embedder and/or chunking; reranker and pool-size are already maxed.
+- **Reranker: keep** (validated lift). **Query rewriting: candidate to drop** (neutral-to-negative + an extra LLM call). **Hybrid: keep** (cheap insurance).
+- **Latency is generation-bound.** retrieval p95 0.77s ✓; e2e p95 8.75s ✗ vs the <3s target — entirely the 8B generating on a shared 3090.
+- **3090 vs L40S:** the 3090 is fine for retrieval and single-user functional validation. **L40S is warranted for production** to fix answer latency/throughput and to run a larger LLM (which also lifts the verbatim-quote fidelity noted in Phase 4e) — driven by *generation*, not retrieval.
 
 ---
 
@@ -264,6 +283,8 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 | 2026-06-24 | **Reverse Docling decision** — use PyMuPDF + Tesseract OCR | Docling requires ~1.5 GB of layout/OCR model weights even for plain text extraction; weights were never populated and ingestion errored at runtime. PyMuPDF + on-demand Tesseract OCR has zero model artifacts and fits the air-gap constraint trivially. |
 | 2026-06-24 | OCR (not a VLM) for image-rich pages | Requirement is page **findability**, not design extraction. OCR lifts diagram text labels for search and is verifiable against the source image; a VLM would synthesise a description (a citation-integrity risk) and cost GPU. Human reads the actual design from the surfaced page image. |
 | 2026-06-24 | `page` + `has_image` on every chunk | Establishes page-level provenance — the metadata foundation for verified citations (no documents successfully ingested yet, so no migration cost). |
+| 2026-06-24 | Phase 5: keep reranker, keep hybrid, flag query-rewrite for removal | Ablation on 61-Q eval (28-doc corpus): reranker is the only lever with measurable lift; hybrid neutral but cheap; **query rewriting is net-negative** for dense retrieval with nomic (keyword text embeds worse than the natural question). Validate rewrite on real multi-turn queries before removing. |
+| 2026-06-24 | Production target L40S is driven by generation, not retrieval | Retrieval p95 0.77s on the 3090 (target <3s); e2e p95 8.75s is generation-bound. Quality ceiling is first-stage recall (~0.74), an embedding/chunking problem independent of GPU. L40S buys faster/larger LLM + throughput + headroom. |
 | 2026-06-23 | Production target is L40S (not RTX 3090) | RTX 3090 is dev/test only; L40S (48 GB VRAM) fits 70B LLM + embedding + reranker on a single card |
 | 2026-06-23 | Keep Qdrant as vector store (not migrate to OpenSearch) | Already deployed, no new infrastructure; SQLite FTS5 covers the lexical gap |
 
