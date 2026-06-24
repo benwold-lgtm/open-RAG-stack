@@ -40,23 +40,39 @@ def load_dataset(path):
     return rows
 
 
-def evaluate(dataset, model, *, use_rewrite, use_hybrid, use_rerank):
+def _keys(results, level):
+    if level == "page":
+        return [(r["doc_id"], r["page"]) for r in results]
+    if level == "doc":
+        return [r["doc_id"] for r in results]
+    return [r["point_id"] for r in results]
+
+
+def _gold(item, level):
+    if level == "page":
+        return (item.get("gold_doc_id", ""), item.get("gold_page"))
+    if level == "doc":
+        return item.get("gold_doc_id", "")
+    return str(item["gold_point_id"])
+
+
+def evaluate(dataset, model, *, use_rewrite, use_hybrid, use_rerank, top_k=20, match="point"):
     n = hit5 = hit20 = 0
     mrr5 = 0.0
     for item in dataset:
-        gold = str(item["gold_point_id"])
+        gold = _gold(item, match)
         try:
-            final_ids, pool_ids = u.retrieve(
-                item["question"], model=model,
+            final, pool = u.retrieve(
+                item["question"], model=model, top_k=top_k,
                 use_rewrite=use_rewrite, use_hybrid=use_hybrid, use_rerank=use_rerank,
             )
         except Exception as e:
             print(f"  retrieve failed for {item['question']!r}: {e}", file=sys.stderr)
             continue
         n += 1
-        if gold in pool_ids:
+        if gold in _keys(pool, match):
             hit20 += 1
-        top5 = final_ids[:5]
+        top5 = _keys(final, match)[:5]
         if gold in top5:
             hit5 += 1
             mrr5 += 1.0 / (top5.index(gold) + 1)
@@ -74,8 +90,9 @@ CONFIGS = [
 ]
 
 
-def print_table(rows):
-    print(f"\n{'config':<12} {'n':>4} {'hit@5':>8} {'mrr@5':>8} {'hit@20':>8}")
+def print_table(rows, top_k):
+    pool_col = f"hit@{top_k}"
+    print(f"\n{'config':<12} {'n':>4} {'hit@5':>8} {'mrr@5':>8} {pool_col:>8}")
     print("-" * 44)
     for name, m in rows:
         print(f"{name:<12} {m['n']:>4} {m['hit@5']:>8.3f} {m['mrr@5']:>8.3f} {m['hit@20']:>8.3f}")
@@ -85,6 +102,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default=os.path.join(os.path.dirname(__file__), "dataset.jsonl"))
     ap.add_argument("--matrix", action="store_true", help="run full + all ablations")
+    ap.add_argument("--match", choices=["point", "page", "doc"], default="point",
+                    help="credit a hit at chunk (point), page, or document granularity")
+    ap.add_argument("--top-k", type=int, default=20, help="first-stage pool size")
     ap.add_argument("--no-rewrite", action="store_true")
     ap.add_argument("--no-hybrid", action="store_true")
     ap.add_argument("--no-rerank", action="store_true")
@@ -92,20 +112,22 @@ def main():
 
     dataset = load_dataset(args.dataset)
     model = u.vllm_model()
-    print(f"Dataset: {len(dataset)} questions | Model: {model}", file=sys.stderr)
+    print(f"Dataset: {len(dataset)} questions | Model: {model} | "
+          f"match={args.match} top_k={args.top_k}", file=sys.stderr)
 
+    common = dict(top_k=args.top_k, match=args.match)
     if args.matrix:
         rows = []
         for name, flags in CONFIGS:
             print(f"Running config: {name} ...", file=sys.stderr)
-            rows.append((name, evaluate(dataset, model, **flags)))
-        print_table(rows)
+            rows.append((name, evaluate(dataset, model, **flags, **common)))
+        print_table(rows, args.top_k)
     else:
         flags = dict(use_rewrite=not args.no_rewrite,
                      use_hybrid=not args.no_hybrid,
                      use_rerank=not args.no_rerank)
         name = "+".join(k.replace("use_", "") for k, v in flags.items() if v) or "none"
-        print_table([(name, evaluate(dataset, model, **flags))])
+        print_table([(name, evaluate(dataset, model, **flags, **common))], args.top_k)
 
 
 if __name__ == "__main__":

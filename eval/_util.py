@@ -148,10 +148,16 @@ def _rrf_merge(vector_hits, lexical_hits, k=60):
                   key=lambda x: x[0], reverse=True)
 
 
+def _result(item):
+    """(score, pid, payload) -> {point_id, doc_id, page} for flexible matching."""
+    _, pid, p = item
+    return {"point_id": str(pid), "doc_id": p.get("doc_id", ""), "page": p.get("page")}
+
+
 def retrieve(question, *, top_k=20, final_n=5,
              use_rewrite=True, use_hybrid=True, use_rerank=True, model=None):
-    """Return (final_ids, pool_ids) as lists of point_id strings.
-    final_ids = post-rerank top-n; pool_ids = pre-rerank deduped pool (top_k)."""
+    """Return (final, pool) — each a list of {point_id, doc_id, page}.
+    final = post-rerank top-n; pool = pre-rerank deduped pool (top_k)."""
     search_query = rewrite_query(question, model) if use_rewrite else question
     vector = embed_query(search_query)
 
@@ -180,16 +186,16 @@ def retrieve(question, *, top_k=20, final_n=5,
         if len(top) >= top_k:
             break
 
-    pool_ids = [pid for _, pid, _ in top]
+    pool = [_result(t) for t in top]
 
     if use_rerank and RERANKER_URL and top:
         passages = [p.get("content", "") for _, _, p in top]
         try:
             ranked = rerank(question, passages, final_n)
-            final = [top[item["index"]] for item in ranked]
+            final = [_result(top[item["index"]]) for item in ranked]
         except Exception:
-            final = top[:final_n]
+            final = [_result(t) for t in top[:final_n]]
     else:
-        final = top[:final_n]
+        final = [_result(t) for t in top[:final_n]]
 
-    return [pid for _, pid, _ in final], pool_ids
+    return final, pool

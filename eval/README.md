@@ -40,7 +40,15 @@ the rest are there to help you curate.
 python3 eval/run_eval.py --matrix     # full + every ablation as a table
 python3 eval/run_eval.py --no-rerank  # one config at a time, if preferred
 ```
-Reports `hit@5`, `mrr@5` (final post-rerank context) and `hit@20` (pre-rerank pool).
+Reports `hit@5`, `mrr@5` (final post-rerank context) and `hit@N` (pre-rerank pool).
+
+Interpreting recall on a topically-redundant corpus (separate true recall gap
+from single-gold label strictness):
+```bash
+python3 eval/run_eval.py --matrix --match page    # credit a hit at page granularity
+python3 eval/run_eval.py --matrix --top-k 40      # does a bigger pool lift recall?
+```
+`--match` is `point` (exact chunk, default) | `page` (same doc+page) | `doc` (same document).
 
 **5.5 — Latency:**
 ```bash

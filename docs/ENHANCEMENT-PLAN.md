@@ -233,12 +233,24 @@ POST /rerank
 
 | # | Task | Status | Notes |
 |---|---|---|---|
-| 5.1 | Corpus inventory & sanity check | ⬜ Pending | Count docs / chunks / Qdrant points per collection; flag docs with `chunk_count` 0 or status `unchanged`. Confirms the "fast ingest" genuinely embedded content |
-| 5.2 | Generate + curate eval set (hybrid) | ⬜ Pending | `eval/gen_eval_set.py` samples chunks across docs → LLM writes one question per chunk (gold = source `point_id`/page) → you curate candidates down to 20–50 in `eval/dataset.jsonl` |
-| 5.3 | Retrieval metrics — current full system | ⬜ Pending | `eval/run_eval.py`: hit@5 + MRR@5 (final context), plus hit@20 (pre-rerank pool) |
-| 5.4 | Ablations | ⬜ Pending | Re-run with `--no-rerank`, `--no-hybrid`, `--no-rewrite`, vector-only → table attributing each component's lift |
-| 5.5 | Latency | ⬜ Pending | `eval/load_test.py`: retrieval-only vs end-to-end p50/p95/p99 at small concurrency. Retrieval target <3s p95 (easily met); end-to-end is generation-bound on the 8B/3090 — reported separately |
-| 5.6 | Record results + sizing call | ⬜ Pending | Write the metrics table into this doc; recommend "3090 good enough" vs "L40S warranted" from accuracy + latency |
+| 5.1 | Corpus inventory & sanity check | ✅ Done | 2026-06-24: 28 docs, 3,248 chunks, all `completed` (none `unchanged`/zero). "Fast ingest" confirmed legit — GPU embedding + born-digital text extraction. |
+| 5.2 | Generate + curate eval set (hybrid) | ✅ Done | 61-question curated set (`eval/dataset.jsonl`, gitignored), LLM-generated from sampled chunks across the 28 docs |
+| 5.3 | Retrieval metrics — current full system | ✅ Done | Full system: **hit@5 0.738, MRR@5 0.634, hit@20 0.738** (see Results below) |
+| 5.4 | Ablations | ✅ Done | Reranker is the only lever with lift (+0.066 hit@5 / +0.098 MRR). Hybrid & query-rewrite neutral on this synthetic set (caveat: paraphrase questions favour dense retrieval). See Results |
+| 5.5 | Latency | ⬜ Pending | `eval/load_test.py`: retrieval-only vs end-to-end p50/p95/p99 at small concurrency |
+| 5.6 | Record results + sizing call | ⬜ Pending | After latency: recommend "3090 good enough" vs "L40S warranted" |
+
+**Results — retrieval ablation (2026-06-24, n=61, k=5):**
+
+| config | hit@5 | MRR@5 | hit@20 |
+|---|---|---|---|
+| full | 0.738 | 0.634 | 0.738 |
+| −rewrite | 0.738 | 0.623 | 0.738 |
+| −hybrid | 0.738 | 0.634 | 0.738 |
+| −rerank | 0.672 | 0.536 | 0.738 |
+| dense-only | 0.672 | 0.517 | 0.738 |
+
+Reading: (1) **reranker earns its place** — the only component whose removal moves the metric. (2) **hybrid + query-rewrite are neutral here** — kept anyway (cheap; help real keyword queries, which this synthetic set under-represents since LLM questions paraphrase the source chunk → favour dense retrieval). (3) **`hit@20` is flat at 0.738 across all configs and equals full `hit@5`** → the reranker already promotes every gold-in-pool chunk into the top-5; the ceiling is **first-stage recall**, not reranking. (4) **0.738 is understated** by single-gold scoring on a topically-redundant 28-doc corpus (a question is often answerable by a non-gold chunk that's scored as a miss). Follow-up experiments to separate true recall gap from label strictness: page-level match credit, and a larger top-k pool.
 
 ---
 
