@@ -56,8 +56,9 @@ def embed_query(text):
 
 
 def qdrant_search(collection, vector, limit):
+    coll = urllib.parse.quote(collection, safe="")
     r = post_json(
-        f"{QDRANT_URL}/collections/{collection}/points/search",
+        f"{QDRANT_URL}/collections/{coll}/points/search",
         {"vector": vector, "limit": limit, "with_payload": True},
         headers=_qdrant_headers(),
     )
@@ -65,11 +66,12 @@ def qdrant_search(collection, vector, limit):
 
 
 def qdrant_scroll(collection, limit, offset=None):
+    coll = urllib.parse.quote(collection, safe="")
     payload = {"limit": limit, "with_payload": True, "with_vector": False}
     if offset is not None:
         payload["offset"] = offset
     r = post_json(
-        f"{QDRANT_URL}/collections/{collection}/points/scroll",
+        f"{QDRANT_URL}/collections/{coll}/points/scroll",
         payload, headers=_qdrant_headers(),
     )
     res = r.get("result", {})
