@@ -97,7 +97,9 @@ services:
       CHUNK_SIZE: "512"
       CHUNK_OVERLAP: "50"
       EMBEDDING_DIM: "768"
-      DOCLING_ARTIFACTS_PATH: /models/docling
+      OCR_ENABLED: "true"
+      OCR_MIN_CHARS: "100"
+      OCR_DPI: "200"
     volumes:
       - ingestion_data:/app/data
       - ${MODEL_DIR:-./models}:/models:ro

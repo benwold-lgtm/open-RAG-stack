@@ -9,6 +9,7 @@ COPY requirements.txt .
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    tesseract-ocr \
     && pip install --no-cache-dir -r requirements.txt \
     && playwright install --with-deps chromium \
     && chmod -R 755 /ms-playwright \

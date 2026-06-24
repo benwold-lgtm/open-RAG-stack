@@ -35,6 +35,15 @@ CHUNK_SIZE               = int(os.getenv("CHUNK_SIZE",          "512"))
 CHUNK_OVERLAP            = int(os.getenv("CHUNK_OVERLAP",       "50"))
 EMBEDDING_DIM            = int(os.getenv("EMBEDDING_DIM",       "768"))
 
+# OCR fallback for image-rich PDF pages (Tesseract, CPU-only). A page is rendered
+# and OCR'd only when its text layer is sparse — born-digital text pages never hit it.
+OCR_ENABLED   = os.getenv("OCR_ENABLED", "true").lower() in ("1", "true", "yes")
+OCR_MIN_CHARS = int(os.getenv("OCR_MIN_CHARS", "100"))
+OCR_DPI       = int(os.getenv("OCR_DPI",       "200"))
+# A page with more than this many vector-drawing ops is treated as having a diagram
+# worth surfacing as an image (distinguishes a diagram from a stray underline/rule).
+DRAWING_IMG_THRESHOLD = 5
+
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "pptx", "txt", "md"}
 
 # ── Database setup ────────────────────────────────────────────────────────────
@@ -154,12 +163,41 @@ async def fetch_url(url: str) -> tuple[str, str]:
     return title, text
 
 # ── Document extractor ────────────────────────────────────────────────────────
-def _extract_pdf(content: bytes) -> str:
+def _ocr_page(page) -> str:
+    """Render a PDF page to an image and OCR it with Tesseract (CPU-only)."""
     import io
-    from pypdf import PdfReader
-    reader = PdfReader(io.BytesIO(content))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n\n".join(p for p in pages if p.strip())
+    import pytesseract
+    from PIL import Image
+    pix = page.get_pixmap(dpi=OCR_DPI)
+    img = Image.open(io.BytesIO(pix.tobytes("png")))
+    return pytesseract.image_to_string(img)
+
+
+def _extract_pdf_pages(content: bytes) -> list[dict]:
+    """Return per-page records [{page, text, has_image}] using PyMuPDF.
+
+    Pages with a sparse text layer are rendered and OCR'd so the labels in
+    image/diagram pages (device names, IPs, VLANs) become searchable. has_image
+    flags pages carrying a raster image or a diagram for the UI to surface."""
+    import fitz  # PyMuPDF
+    pages = []
+    with fitz.open(stream=content, filetype="pdf") as doc:
+        for i, page in enumerate(doc, start=1):
+            text = page.get_text() or ""
+            has_raster = bool(page.get_images())
+            ocr_applied = False
+            if OCR_ENABLED and len(text.strip()) < OCR_MIN_CHARS:
+                ocr_text = _ocr_page(page)
+                if ocr_text.strip():
+                    text = ocr_text
+                    ocr_applied = True
+            has_diagram = len(page.get_drawings()) > DRAWING_IMG_THRESHOLD
+            pages.append({
+                "page": i,
+                "text": text,
+                "has_image": has_raster or has_diagram or ocr_applied,
+            })
+    return pages
 
 
 def _extract_docx(content: bytes) -> str:
@@ -184,28 +222,37 @@ def _extract_pptx(content: bytes) -> str:
     return "\n\n".join(slides)
 
 
-async def extract_document(filename: str, content: bytes) -> tuple[str, str]:
-    """Extract (title, clean_text) from a PDF, DOCX, PPTX, txt, or md file."""
+def _clean(text: str) -> str:
+    text = re.sub(r' {2,}', ' ', text)
+    return re.sub(r'\n{3,}', '\n\n', text).strip()
+
+
+async def extract_document(filename: str, content: bytes) -> tuple[str, list[dict]]:
+    """Extract (title, segments) from a PDF, DOCX, PPTX, txt, or md file.
+
+    Each segment is {page, text, has_image}. PDFs yield one segment per page
+    (page-aware, OCR fallback); other formats yield a single page=None segment."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported file type: .{ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
 
+    loop = asyncio.get_event_loop()
     if ext == "pdf":
-        loop = asyncio.get_event_loop()
-        text = await loop.run_in_executor(None, _extract_pdf, content)
+        segments = await loop.run_in_executor(None, _extract_pdf_pages, content)
     elif ext == "docx":
-        loop = asyncio.get_event_loop()
         text = await loop.run_in_executor(None, _extract_docx, content)
+        segments = [{"page": None, "text": text, "has_image": False}]
     elif ext == "pptx":
-        loop = asyncio.get_event_loop()
         text = await loop.run_in_executor(None, _extract_pptx, content)
+        segments = [{"page": None, "text": text, "has_image": False}]
     else:
         text = content.decode("utf-8", errors="replace")
+        segments = [{"page": None, "text": text, "has_image": False}]
 
-    text = re.sub(r' {2,}', ' ', text)
-    text = re.sub(r'\n{3,}', '\n\n', text).strip()
-    return filename, text
+    for seg in segments:
+        seg["text"] = _clean(seg["text"])
+    return filename, segments
 
 # ── File storage ──────────────────────────────────────────────────────────────
 def save_file(doc_id: str, filename: str, content: bytes) -> str:
@@ -231,7 +278,7 @@ async def run_pipeline(
     doc_id: str,
     source: str,
     title: str,
-    text: str,
+    segments: list[dict],
     content_hash: str,
     collection: str,
     vendor: str,
@@ -239,11 +286,19 @@ async def run_pipeline(
     classification: str,
     source_type: str,
 ) -> int:
-    """Chunk, embed, and upsert to Qdrant. Returns chunk count."""
+    """Chunk, embed, and upsert to Qdrant. Returns chunk count.
+
+    segments is a list of {page, text, has_image}; each is chunked independently
+    so every chunk carries its source page and image flag."""
     now = datetime.utcnow().isoformat()
 
-    chunks = chunk_text(text)
-    if not chunks:
+    # (chunk_text, page, has_image) — chunk each segment separately to keep page tags
+    chunk_records = [
+        (c, seg.get("page"), seg.get("has_image", False))
+        for seg in segments
+        for c in chunk_text(seg["text"])
+    ]
+    if not chunk_records:
         raise ValueError("No chunks generated from content")
 
     await ensure_collection(collection)
@@ -260,14 +315,15 @@ async def run_pipeline(
         )
     )
 
+    total_chunks = len(chunk_records)
     BATCH_SIZE = 8
-    for i in range(0, len(chunks), BATCH_SIZE):
-        batch_chunks = chunks[i:i + BATCH_SIZE]
-        batch_embeddings = await embed_texts(batch_chunks)
+    for i in range(0, total_chunks, BATCH_SIZE):
+        batch = chunk_records[i:i + BATCH_SIZE]
+        batch_embeddings = await embed_texts([rec[0] for rec in batch])
 
         points = []
         fts_rows = []
-        for j, (chunk, embedding) in enumerate(zip(batch_chunks, batch_embeddings)):
+        for j, ((chunk, page, has_image), embedding) in enumerate(zip(batch, batch_embeddings)):
             point_id = int.from_bytes(
                 hashlib.sha256(f"{doc_id}-{i+j}".encode()).digest()[:8],
                 byteorder="big"
@@ -282,8 +338,10 @@ async def run_pipeline(
                     "collection":     collection,
                     "vendor":         vendor,
                     "chunk_index":    i+j,
-                    "total_chunks":   len(chunks),
+                    "total_chunks":   total_chunks,
                     "content":        chunk,
+                    "page":           page,
+                    "has_image":      has_image,
                     "access_roles":   access_roles,
                     "classification": classification,
                     "source_type":    source_type,
@@ -304,7 +362,7 @@ async def run_pipeline(
 
         await asyncio.sleep(0.1)
 
-    return len(chunks)
+    return total_chunks
 
 # ── URL ingestion task ────────────────────────────────────────────────────────
 async def ingest_url_task(
@@ -346,7 +404,8 @@ async def ingest_url_task(
                     return
 
         chunk_count = await run_pipeline(
-            doc_id, url, title, text, content_hash,
+            doc_id, url, title,
+            [{"page": None, "text": text, "has_image": False}], content_hash,
             collection, vendor, access_roles, classification, "url"
         )
 
@@ -389,12 +448,13 @@ async def ingest_document_task(
         await db.commit()
 
     try:
-        title, text = await extract_document(filename, content)
+        title, segments = await extract_document(filename, content)
 
-        if len(text) < 50:
-            raise ValueError(f"Insufficient content extracted: {len(text)} chars")
+        full_text = "\n\n".join(s["text"] for s in segments)
+        if len(full_text) < 50:
+            raise ValueError(f"Insufficient content extracted: {len(full_text)} chars")
 
-        content_hash = hashlib.sha256(text.encode()).hexdigest()
+        content_hash = hashlib.sha256(full_text.encode()).hexdigest()
 
         async with aiosqlite.connect(DB_PATH) as db:
             async with db.execute(
@@ -412,7 +472,7 @@ async def ingest_document_task(
         save_file(doc_id, filename, content)
 
         chunk_count = await run_pipeline(
-            doc_id, filename, title, text, content_hash,
+            doc_id, filename, title, segments, content_hash,
             collection, vendor, access_roles, classification, "document"
         )
 
@@ -600,7 +660,8 @@ async def ingest_deep_task(doc_id: str, request: "DeepIngestRequest"):
 
             try:
                 chunk_count = await run_pipeline(
-                    page_doc_id, page_url, title, text, content_hash,
+                    page_doc_id, page_url, title,
+                    [{"page": None, "text": text, "has_image": False}], content_hash,
                     request.collection, request.vendor,
                     request.access_roles, request.classification, "deep_crawl"
                 )
@@ -809,6 +870,34 @@ async def get_document(doc_id: str):
             if not row:
                 raise HTTPException(status_code=404, detail="Document not found")
             return dict(row)
+
+@app.get("/documents/{doc_id}/pages/{page}/image")
+async def get_page_image(doc_id: str, page: int):
+    """Render a single PDF page to PNG on demand from the stored source file.
+    Lets the UI surface diagram/image pages so a human can read the design."""
+    import glob
+    matches = glob.glob(os.path.join(FILES_DIR, f"{doc_id}.*"))
+    if not matches:
+        raise HTTPException(status_code=404, detail="Source file not found for this document")
+    path = matches[0]
+    if not path.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Page images are only available for PDF sources")
+
+    def render() -> bytes:
+        import fitz
+        with fitz.open(path) as doc:
+            if page < 1 or page > doc.page_count:
+                raise IndexError
+            return doc[page - 1].get_pixmap(dpi=OCR_DPI).tobytes("png")
+
+    try:
+        png = await asyncio.get_event_loop().run_in_executor(None, render)
+    except IndexError:
+        raise HTTPException(status_code=404, detail=f"Page {page} out of range")
+
+    import io
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(io.BytesIO(png), media_type="image/png")
 
 @app.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str):

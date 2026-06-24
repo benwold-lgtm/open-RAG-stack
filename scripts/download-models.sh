@@ -123,33 +123,10 @@ print(f"  Reranker model OK — test score: {scores[0]:.4f}")
 EOF
 ok "Reranker model verified"
 
-# ── 3. Docling layout models ───────────────────────────────────────────────────
-echo
-echo "── Docling Document Parsing Models ──────────────────"
-DOCLING_ARTIFACTS="${MODEL_DIR}/docling"
-mkdir -p "${DOCLING_ARTIFACTS}"
+# Note: the ingestion service no longer needs downloaded models (Phase 4c) —
+# PDF parsing uses PyMuPDF (bundled) and OCR uses the Tesseract apt package.
 
-if [[ -d "${DOCLING_ARTIFACTS}/TableFormer" ]] && [[ -d "${DOCLING_ARTIFACTS}/layout" ]]; then
-    skip "Docling models already cached — skipping download"
-else
-    if ! python3 -c "import docling" 2>/dev/null; then
-        info "Installing docling for model download..."
-        pip install -q --break-system-packages "docling>=2.0.0"
-    fi
-
-    info "Downloading Docling layout + TableFormer models..."
-    DOCLING_ARTIFACTS_PATH="${DOCLING_ARTIFACTS}" python3 - <<EOF
-import os
-os.environ["DOCLING_ARTIFACTS_PATH"] = "${DOCLING_ARTIFACTS}"
-from docling.document_converter import DocumentConverter
-# Instantiating the converter triggers model downloads
-DocumentConverter()
-print("  Docling models downloaded")
-EOF
-    ok "Docling models downloaded to ${DOCLING_ARTIFACTS}"
-fi
-
-# ── 4. LLM model ───────────────────────────────────────────────────────────────
+# ── 3. LLM model ───────────────────────────────────────────────────────────────
 echo
 echo "── LLM Model ────────────────────────────────────────"
 warn "LLM download is skipped — the production LLM has not been selected yet."
@@ -171,11 +148,9 @@ echo "║                    Summary                       ║"
 echo "╚══════════════════════════════════════════════════╝"
 ok  "Embedding model  : ${EMBED_MODEL}"
 ok  "Reranker model   : ${RERANK_MODEL}"
-ok  "Docling models   : ${DOCLING_ARTIFACTS}"
 warn "LLM              : pending model selection"
 echo
 info "All models are stored under: ${MODEL_DIR}"
 info "Set HF_HOME=${HF_HOME} in all service deployments (Phase 1.2)"
-info "Set DOCLING_ARTIFACTS_PATH=${DOCLING_ARTIFACTS} in ingestion deployment (Phase 4.2)"
 echo
 ok "Phase 1.1 complete."

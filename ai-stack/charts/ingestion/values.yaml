@@ -22,6 +22,11 @@ config:
   chunkSize: "256"
   chunkOverlap: "25"
   embeddingDim: "768"
+  # OCR fallback for image-rich PDF pages (Tesseract, CPU-only). Only fires on
+  # pages whose text layer is shorter than ocrMinChars.
+  ocrEnabled: "true"
+  ocrMinChars: "100"
+  ocrDpi: "200"
 
 storage:
   size: 5Gi
@@ -46,13 +51,6 @@ podSecurityContext:
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>
 
-# ── Air-gapped model storage ─────────────────────────────────────────────────
-# Enable to load Docling layout models from pre-downloaded storage instead of
-# fetching from HuggingFace/internet at pod startup. Run scripts/download-models.sh
-# first, then set enabled: true and pvcName to your pre-created PVC.
-# When enabled, DOCLING_ARTIFACTS_PATH is set to <mountPath>/docling.
-# The PVC must exist before deploying — it is NOT created by this chart.
-modelStorage:
-  enabled: false
-  pvcName: model-storage-pvc  # pre-existing PVC backed by your model storage
-  mountPath: /models
+# Note: the ingestion service requires no model storage as of Phase 4c — PDF
+# parsing uses PyMuPDF (bundled) and OCR uses Tesseract (apt package). The
+# former Docling modelStorage / DOCLING_ARTIFACTS_PATH wiring has been removed.

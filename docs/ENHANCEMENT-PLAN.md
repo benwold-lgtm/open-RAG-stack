@@ -1,7 +1,7 @@
 # Open-RAG-Stack Enhancement Plan
 ## Goal: NVIDIA Blueprint Parity — Fully Internal Deployment
 
-**Last Updated:** 2026-06-23
+**Last Updated:** 2026-06-24
 **Status:** In Progress
 **Maintained by:** open-RAG-stack contributors
 
@@ -25,7 +25,7 @@ The NVIDIA Enterprise RAG Blueprint (build.nvidia.com) was used as a reference f
 | Lexical / BM25 search | ❌ none | ✅ SQLite FTS5 (no new service) |
 | Hybrid search fusion | ❌ none | ✅ RRF (Reciprocal Rank Fusion) |
 | Reranker | ❌ none | ✅ BAAI/bge-reranker-v2-m3 |
-| PDF parsing | ⚠️ PyMuPDF (flat text) | ✅ IBM Docling (structure-aware) |
+| PDF parsing | ⚠️ flat text, no page metadata | ✅ PyMuPDF page-aware text + Tesseract OCR fallback for image-rich pages (see Phase 4c) |
 | Chunking strategy | ⚠️ word-based | ✅ RecursiveCharacterTextSplitter |
 | Multi-chunk per source | ❌ 1 chunk/URL max | ✅ 3 chunks/URL max |
 | Query rewriting | ❌ none | ✅ uses existing LLM |
@@ -151,6 +151,33 @@ POST /rerank
 
 ---
 
+### Phase 4c: Image-Rich PDF Handling (Page-Aware OCR)
+
+> **Context.** Phase 4.1 adopted IBM Docling for PDF parsing. In testing (2026-06-24) Docling failed at runtime: its `StandardPdfPipeline` unconditionally loads a ~1.5 GB layout ML model (`ds4sd/docling-models`) plus optional OCR weights from `DOCLING_ARTIFACTS_PATH`, and those artifacts were never populated — so even basic text extraction errored. Docling was first replaced with lightweight `pypdf`/`python-docx`/`python-pptx` (commit `1f60b83`) to unblock ingestion. That works for born-digital text but silently drops **image-rich PDFs** (validated network/connectivity designs that live in diagrams).
+>
+> **Requirement (from stakeholder).** Search must find the **right page/document**; it must **not** attempt to extract design information out of the diagram. A human opens the page image to read the validated design. This rules out a VLM (which would *describe* the design) in favour of **OCR**, which lifts the diagram's text labels (device names, IPs, VLANs, ports) so the page is findable — and is verifiable against the image, keeping the future citation story clean.
+>
+> **Approach.** Replace `pypdf` with PyMuPDF (`fitz`) for PDFs — needed anyway for per-page image detection and on-demand rendering. OCR is a *per-page fallback* (Tesseract, CPU-only, zero model artifacts): a page is rendered + OCR'd only when its text layer is sparse and it contains images. Every chunk gains `page` + `has_image` metadata (the foundation for page-level citations). Page images are surfaced via a lazy render endpoint — no extra files stored. **Scope: PDF only**; DOCX/PPTX keep their current text-layer extraction. No VLM, no GPU, no model downloads.
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 4c.1 | `requirements.txt`: drop `pypdf`, add `pymupdf>=1.24.0` + `pytesseract>=0.3.10` | ✅ Done | PyMuPDF wheels bundle MuPDF; Tesseract is the only system dep |
+| 4c.2 | `Dockerfile`: add `tesseract-ocr` apt package | ✅ Done | Language data ships with the package — no model artifacts to download |
+| 4c.3 | Per-page extraction with OCR fallback | ✅ Done | `_extract_pdf_pages()` → `list[{page, text, has_image}]`; OCR via `_ocr_page()` when `len(text.strip()) < OCR_MIN_CHARS`; `has_image` from raster images, vector drawings (>`DRAWING_IMG_THRESHOLD`), or OCR |
+| 4c.4 | Page-aware pipeline | ✅ Done | `run_pipeline()` accepts `segments`; each chunk tagged with `page` + `has_image` in Qdrant payload; URL/deep-crawl pass a single `page=None` segment |
+| 4c.5 | Page-image render endpoint | ✅ Done | `GET /documents/{id}/pages/{n}/image` renders from the stored file via `fitz` → PNG; no PNG persisted |
+| 4c.6 | OCR config env vars | ✅ Done | `OCR_ENABLED=true`, `OCR_MIN_CHARS=100`, `OCR_DPI=200` — added to `docker-compose.yml` + ingestion chart (`config.ocr*`) |
+| 4c.7 | Remove vestigial Docling wiring | ✅ Done | Removed `DOCLING_ARTIFACTS_PATH` + `modelStorage` block (compose, chart deployment/values), Docling download from `scripts/download-models.sh`, and `.env.example` docling layout note |
+| 4c.8 | CI build + on-node verification | ⬜ Pending | Drop an image-rich PDF in rag-admin → reaches `completed`; diagram page findable by a label; image endpoint returns the page |
+
+**Deliberately deferred (follow-on):**
+- Surfacing the page image + page citation in the chat UI (ai-agent context formatting + open-webui rendering).
+- Page-level citations in **lexical** (FTS5) search — the FTS5 schema is fixed at creation; adding a `page` column needs a migration. Vector search carries `page` from day one.
+
+**Superseded rows:** Phase 4.1 (Docling adoption) and 4.7 (`docling>=2.0.0` in requirements) are obsoleted by this phase.
+
+---
+
 ### Phase 5: Validation & Benchmarking
 > Confirm improvements are measurable, not just theoretical.
 
@@ -172,6 +199,9 @@ POST /rerank
 | 2026-06-23 | Use SQLite FTS5 for BM25 (not OpenSearch or Qdrant sparse) | SQLite already present in ingestion service; no new infrastructure; sufficient for medium business scale |
 | 2026-06-23 | Use BAAI/bge-reranker-v2-m3 (not cross-encoder/ms-marco-MiniLM) | Better multilingual support, higher benchmark scores; marginal VRAM cost difference |
 | 2026-06-23 | Use IBM Docling (not Unstructured) | Fully open-source, no API tier; better table extraction; actively maintained by IBM |
+| 2026-06-24 | **Reverse Docling decision** — use PyMuPDF + Tesseract OCR | Docling requires ~1.5 GB of layout/OCR model weights even for plain text extraction; weights were never populated and ingestion errored at runtime. PyMuPDF + on-demand Tesseract OCR has zero model artifacts and fits the air-gap constraint trivially. |
+| 2026-06-24 | OCR (not a VLM) for image-rich pages | Requirement is page **findability**, not design extraction. OCR lifts diagram text labels for search and is verifiable against the source image; a VLM would synthesise a description (a citation-integrity risk) and cost GPU. Human reads the actual design from the surfaced page image. |
+| 2026-06-24 | `page` + `has_image` on every chunk | Establishes page-level provenance — the metadata foundation for verified citations (no documents successfully ingested yet, so no migration cost). |
 | 2026-06-23 | Production target is L40S (not RTX 3090) | RTX 3090 is dev/test only; L40S (48 GB VRAM) fits 70B LLM + embedding + reranker on a single card |
 | 2026-06-23 | Keep Qdrant as vector store (not migrate to OpenSearch) | Already deployed, no new infrastructure; SQLite FTS5 covers the lexical gap |
 
@@ -181,7 +211,7 @@ POST /rerank
 
 - [ ] What LLM is the production target? (Llama 3.3 70B? Qwen3 72B? Custom fine-tune?) — affects vLLM Helm values and GPU sizing
 - [ ] Is web search (SearXNG) needed in production, or will RAG be strictly document-only?
-- [ ] Should Docling's multimodal features (chart/image understanding) be enabled? Requires a vision model alongside the LLM.
+- [x] Should Docling's multimodal features (chart/image understanding) be enabled? — **Resolved 2026-06-24:** Docling removed entirely (see Phase 4c). Image-rich pages handled via Tesseract OCR for findability; no vision model. A VLM-based diagram-description path remains possible later for label-free graphics, gated behind config, ideally on the L40S.
 - [ ] Will Harbor be set up for the internal container registry, or use `imagePullPolicy: Never`?
 - [ ] How many L40S GPUs will be in the production cluster, and will they be in one node or spread across nodes?
 
@@ -201,7 +231,7 @@ POST /rerank
 |---|---|---|---|
 | `vllm-server` | Configurable HF model | 8000 | LLM inference |
 | `embedding` | nomic-ai/nomic-embed-text-v1.5 | 8001 | Dense vector embeddings |
-| `ingestion` | Docling + SQLite + Qdrant | 8002 | Document parsing, chunking, indexing |
+| `ingestion` | PyMuPDF + Tesseract OCR + SQLite + Qdrant | 8002 | Document parsing, page-aware chunking, OCR fallback, indexing |
 | `ai-agent` | FastAPI orchestrator | 8000 | RAG pipeline, tool calling |
 | `qdrant` | Qdrant vector DB | 6333 | Vector storage and search |
 | `open-webui` | Open WebUI | 80 | User interface |
@@ -216,12 +246,12 @@ Set `MODEL_DIR` to your NFS mount point or local path (default: `/mnt/nfs/models
 |---|---|---|---|
 | `nomic-ai/nomic-embed-text-v1.5` | ~550 MB | embedding service | Downloaded and verified by download-models.sh |
 | `BAAI/bge-reranker-v2-m3` | ~1.1 GB | reranker service | Downloaded and verified by download-models.sh |
-| Docling layout models | ~1.5 GB | ingestion service | Downloaded and verified by download-models.sh |
 | LLM (your choice) | 4–70 GB | vllm-server | Download separately; set `model.name` in `vllm-server/values.yaml` |
 
+> The ingestion service needs **no** model artifacts as of Phase 4c — PyMuPDF bundles its parser and Tesseract language data ships with the `tesseract-ocr` apt package.
+
 After downloading, set these env vars in your Helm deployments (Phase 1.2):
-- `HF_HOME=<MODEL_DIR>/huggingface` — all services
-- `DOCLING_ARTIFACTS_PATH=<MODEL_DIR>/docling` — ingestion service only
+- `HF_HOME=<MODEL_DIR>/huggingface` — embedding, reranker, vllm-server (ingestion needs no model storage as of Phase 4c)
 
 ---
 
