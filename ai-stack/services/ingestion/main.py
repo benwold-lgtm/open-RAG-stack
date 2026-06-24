@@ -3,7 +3,6 @@ import re
 import shutil
 import hashlib
 import asyncio
-import tempfile
 import aiosqlite
 import httpx
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -35,7 +34,6 @@ WATCH_POLL_INTERVAL = int(os.getenv("WATCH_POLL_INTERVAL", "60"))
 CHUNK_SIZE               = int(os.getenv("CHUNK_SIZE",          "512"))
 CHUNK_OVERLAP            = int(os.getenv("CHUNK_OVERLAP",       "50"))
 EMBEDDING_DIM            = int(os.getenv("EMBEDDING_DIM",       "768"))
-DOCLING_ARTIFACTS_PATH   = os.getenv("DOCLING_ARTIFACTS_PATH",  "")
 
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "pptx", "txt", "md"}
 
@@ -155,28 +153,37 @@ async def fetch_url(url: str) -> tuple[str, str]:
     text = re.sub(r'\s+', ' ', result.markdown or "").strip()
     return title, text
 
-# ── Docling converter (lazy init — loads on first document conversion) ─────────
-# OCR and table-structure ML models require pre-downloaded weights in
-# DOCLING_ARTIFACTS_PATH. Both are disabled here so the service works without
-# those weights; text-layer PDFs extract correctly. Scanned (image-only) PDFs
-# will produce minimal text — download Docling model artifacts and set
-# DOCLING_ENABLE_OCR=true in the env to re-enable when weights are present.
-_docling_converter = None
-
-def _get_docling():
-    global _docling_converter
-    if _docling_converter is None:
-        from docling.document_converter import DocumentConverter, PdfFormatOption
-        from docling.datamodel.pipeline_options import PdfPipelineOptions
-        from docling.datamodel.base_models import InputFormat
-        enable_ocr = os.getenv("DOCLING_ENABLE_OCR", "false").lower() == "true"
-        opts = PdfPipelineOptions(do_ocr=enable_ocr, do_table_structure=enable_ocr)
-        _docling_converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
-        )
-    return _docling_converter
-
 # ── Document extractor ────────────────────────────────────────────────────────
+def _extract_pdf(content: bytes) -> str:
+    import io
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(content))
+    pages = [page.extract_text() or "" for page in reader.pages]
+    return "\n\n".join(p for p in pages if p.strip())
+
+
+def _extract_docx(content: bytes) -> str:
+    import io
+    from docx import Document
+    doc = Document(io.BytesIO(content))
+    return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+
+
+def _extract_pptx(content: bytes) -> str:
+    import io
+    from pptx import Presentation
+    prs = Presentation(io.BytesIO(content))
+    slides = []
+    for slide in prs.slides:
+        slide_text = "\n".join(
+            shape.text for shape in slide.shapes
+            if hasattr(shape, "text") and shape.text.strip()
+        )
+        if slide_text.strip():
+            slides.append(slide_text)
+    return "\n\n".join(slides)
+
+
 async def extract_document(filename: str, content: bytes) -> tuple[str, str]:
     """Extract (title, clean_text) from a PDF, DOCX, PPTX, txt, or md file."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -184,24 +191,20 @@ async def extract_document(filename: str, content: bytes) -> tuple[str, str]:
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported file type: .{ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
 
-    if ext in ("pdf", "docx", "pptx"):
-        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        try:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, lambda: _get_docling().convert(tmp_path)
-            )
-            text = result.document.export_to_markdown()
-        finally:
-            os.unlink(tmp_path)
-        text = re.sub(r' {2,}', ' ', text)
-        text = re.sub(r'\n{3,}', '\n\n', text).strip()
+    if ext == "pdf":
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, _extract_pdf, content)
+    elif ext == "docx":
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, _extract_docx, content)
+    elif ext == "pptx":
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, _extract_pptx, content)
     else:
         text = content.decode("utf-8", errors="replace")
-        text = re.sub(r'\s+', ' ', text).strip()
 
+    text = re.sub(r' {2,}', ' ', text)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
     return filename, text
 
 # ── File storage ──────────────────────────────────────────────────────────────
