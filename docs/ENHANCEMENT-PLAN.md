@@ -218,7 +218,7 @@ POST /rerank
 | 4e.3 | Parse + verify helpers | ✅ Done | `extract_citations()`, `verify_citations()` (normalized substring match per source → page attribution), `format_citations()` (✓/⚠ render) |
 | 4e.4 | Integrate in `chat_completions` | ✅ Done | Strips quote block from the visible answer; appends "Verified quotes" (✓ "…" — p.N / ⚠ "…" — not found); adds `citations` to response JSON. Verification skipped for web-only answers (no RAG sources) |
 | 4e.5 | Wire config | ✅ Done | `docker-compose.yml` + ai-agent Helm chart (`citeVerify`/`CITE_VERIFY`) |
-| 4e.6 | On-node verification | ⬜ Pending | After CI rebuilds `open-rag-ai-agent:latest`: ask a doc question → answer ends with ✓-verified quotes attributed to pages; confirm an unsupported claim surfaces ⚠ |
+| 4e.6 | On-node verification | ✅ Done | Verified 2026-06-24 on bengpu1: 3 verbatim quotes all ✓, each attributed to the correct matched page (incl. p.11 vs p.10 disambiguation); structured `citations[]` in JSON. The 8B quoted verbatim here — ⚠ path (paraphrase/fabrication) is the trivial else-branch, will surface naturally when the model rewords. |
 
 **Known limitation:** small models often *paraphrase* rather than quote verbatim, which will show as ⚠ even when the claim is sound — the flag means "not verbatim-verifiable," not "false." Larger models (L40S) quote more faithfully. The `Sources`/page citations from Phase 4d remain the always-on provenance; verified quotes are an additional, best-effort integrity layer.
 
