@@ -19,6 +19,9 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 EMBEDDING_URL  = os.getenv("EMBEDDING_URL",  "http://embedding.embedding.svc.cluster.local:8001")
 RERANKER_URL   = os.getenv("RERANKER_URL",  "")  # empty = reranking disabled
 INGESTION_URL  = os.getenv("INGESTION_URL", "http://ingestion.ingestion.svc.cluster.local:8002")
+# Browser-reachable base for page-image links (e.g. http://<host-ip>:8002).
+# Empty = text-only page citations (no inline images). See ENHANCEMENT-PLAN Phase 4d.
+INGESTION_PUBLIC_URL = os.getenv("INGESTION_PUBLIC_URL", "")
 
 # ── Web Search Provider ───────────────────────────────────────────────────────
 # Set WEB_SEARCH_PROVIDER in the ai-agent Helm chart values.yaml. Options:
@@ -273,6 +276,9 @@ async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
             "title":       payload.get("title", ""),
             "vendor":      payload.get("vendor", ""),
             "chunk_index": payload.get("chunk_index", 0),
+            "doc_id":      payload.get("doc_id", ""),
+            "page":        payload.get("page"),
+            "has_image":   payload.get("has_image", False),
         })
 
     return "\n\n---\n\n".join(parts), sources
@@ -414,6 +420,37 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
 
+# ── Source / citation formatting ──────────────────────────────────────────────
+def format_sources(sources: list[dict]) -> str:
+    """Render the Sources block with page citations, plus inline page images when
+    an image-bearing PDF page is available and INGESTION_PUBLIC_URL is configured.
+    Deduplicates by (doc_id/url, page) so repeated chunks collapse to one entry."""
+    seen = set()
+    lines = []
+    images = []
+    for s in sources:
+        doc_id = s.get("doc_id", "")
+        page = s.get("page")
+        key = (doc_id or s.get("url", ""), page)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        cite = f"- [{s.get('vendor', '')}] {s.get('title', '')}"
+        if page is not None:
+            cite += f" — p.{page}"
+        cite += f" — {s.get('url', '')}"
+        lines.append(cite)
+
+        if INGESTION_PUBLIC_URL and s.get("has_image") and page is not None and doc_id:
+            img_url = f"{INGESTION_PUBLIC_URL}/documents/{doc_id}/pages/{page}/image"
+            images.append(f"![{s.get('title', '')} p.{page}]({img_url})")
+
+    md = "\n\n---\n**Sources:**\n" + "\n".join(lines)
+    if images:
+        md += "\n\n**Referenced pages:**\n" + "\n\n".join(images)
+    return md
+
 # ── OpenAI-Compatible Endpoint ────────────────────────────────────────────────
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
@@ -429,11 +466,7 @@ async def chat_completions(request: ChatCompletionRequest):
         )
 
         if sources:
-            sources_md = "\n\n---\n**Sources:**\n" + "\n".join(
-                f"- [{s['vendor']}] {s['title']} — {s['url']}"
-                for s in sources
-            )
-            final_response += sources_md
+            final_response += format_sources(sources)
 
         if request.stream:
             return StreamingResponse(

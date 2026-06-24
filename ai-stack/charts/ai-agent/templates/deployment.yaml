@@ -67,6 +67,8 @@ spec:
               value: {{ .Values.embedding.url | quote }}
             - name: INGESTION_URL
               value: {{ .Values.ingestion.url | quote }}
+            - name: INGESTION_PUBLIC_URL
+              value: {{ .Values.ingestion.publicUrl | default "" | quote }}
             - name: RERANKER_URL
               value: {{ .Values.reranker.url | quote }}
           livenessProbe:

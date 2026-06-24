@@ -24,6 +24,9 @@ embedding:
 
 ingestion:
   url: "http://ingestion.ingestion.svc.cluster.local:8002"
+  # Browser-reachable base for inline page-image citations (e.g. http://<node-ip>:30083).
+  # Empty = text-only page citations. Must be reachable from the user's browser.
+  publicUrl: ""
 
 resources:
   requests:

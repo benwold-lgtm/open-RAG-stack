@@ -178,6 +178,29 @@ POST /rerank
 
 ---
 
+### Phase 4d: Image + Page Citations in the Chat UI
+
+> **Context.** Phase 4c put `doc_id`, `page`, and `has_image` on every chunk and exposed `GET /documents/{id}/pages/{n}/image`. The ai-agent retrieval (`run_rag_search`) already builds a `sources` list and appends a markdown "Sources" block to the answer, but it drops the new metadata and shows only `[vendor] title — url`. This phase surfaces **page numbers** and **inline page images** (the actual validated-design diagrams) in the answer so a human can read the source page directly.
+>
+> **Constraint.** Open WebUI is a third-party image — we don't modify its frontend. The only surfaces we control are the assistant message's **markdown content** and the response JSON. So citations are rendered as enriched markdown in the answer (Open WebUI renders it).
+>
+> **Browser-reachability decision (Option A).** Page images live on the ingestion service; the user's **browser** must load them, and it can only reach the host-mapped address (e.g. `http://<host-ip>:8002`), not the internal Docker/K8s service name. The agent is told this base via `INGESTION_PUBLIC_URL`, **default empty**. Empty → text-only page citations (graceful degradation, nothing breaks). Set it (in `.env` on the host — never committed, since it contains an internal IP) → inline diagram images appear. Chosen over committing a placeholder so a fresh deploy never renders broken image links.
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 4d.1 | Carry `doc_id` / `page` / `has_image` into `sources` | ✅ Done | `run_rag_search` (`ai-agent/main.py`) — read straight from the Qdrant payload (present since Phase 4c) |
+| 4d.2 | Add `INGESTION_PUBLIC_URL` config | ✅ Done | `ai-agent/main.py`; default `""` = text-only citations |
+| 4d.3 | Enriched Sources renderer | ✅ Done | `format_sources()` — dedup by `(doc_id/url, page)`; append `— p.{page}`; emit a "Referenced pages" block with inline `![](…/pages/{n}/image)` only when `has_image` + `page` + `INGESTION_PUBLIC_URL` are all present |
+| 4d.4 | Wire config | ✅ Done | `docker-compose.yml` (`${INGESTION_PUBLIC_URL:-}`), `.env.example` (commented, `<host-ip>` placeholder), ai-agent Helm chart (`ingestion.publicUrl`) |
+| 4d.5 | On-node verification | ⬜ Pending | After CI rebuilds `open-rag-ai-agent:latest`: pull + recreate ai-agent; set `INGESTION_PUBLIC_URL` in `.env`; ask a question that hits an image page → answer shows `p.N` and the diagram renders inline |
+
+**Deferred (separate follow-ons):**
+- Inline `[1]`/`[2]` citation markers tied to individual claims, and the verified-quote-matching layer — both belong to the citations-accuracy work, not this UI-surfacing task.
+
+**Known limitation:** lexical-*only* hits carry no `page`/`has_image` (the FTS5 table stores neither), so they fall back to a text citation without an image. Hits found via vector search — the majority — carry full metadata.
+
+---
+
 ### Phase 5: Validation & Benchmarking
 > Confirm improvements are measurable, not just theoretical.
 

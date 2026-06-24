@@ -172,6 +172,9 @@ services:
       EMBEDDING_URL: http://embedding:8001
       RERANKER_URL: http://reranker:8003
       INGESTION_URL: http://ingestion:8002
+      # Browser-reachable base for inline page-image citations (set in .env, e.g.
+      # http://<host-ip>:8002). Empty = text-only page citations.
+      INGESTION_PUBLIC_URL: ${INGESTION_PUBLIC_URL:-}
       WEB_SEARCH_PROVIDER: "none"
     ports:
       - "8004:8000"
