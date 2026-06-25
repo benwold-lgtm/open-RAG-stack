@@ -49,54 +49,26 @@ See [Quick start](#quick-start) below for the full, step-by-step version (model 
 <summary>Text version of the diagram</summary>
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         User Interface                              │
-│                                                                     │
-│                    ┌──────────────────┐                             │
-│                    │   Open-WebUI     │  :30080                     │
-│                    │  (Chat UI)       │                             │
-│                    └────────┬─────────┘                             │
-│                             │ OpenAI-compatible API                 │
-└─────────────────────────────┼───────────────────────────────────────┘
-                              │
-┌─────────────────────────────┼───────────────────────────────────────┐
-│                        AI Agent Layer                               │
-│                             │                                       │
-│                    ┌────────▼─────────┐                             │
-│                    │    ai-agent      │  :30081                     │
-│                    │ (FastAPI / RAG)  │                             │
-│                    └──┬──────────┬───┘                             │
-│                       │          │                                  │
-│          ┌────────────▼──┐  ┌────▼──────────────┐                  │
-│          │  rag_search   │  │  web_search        │                  │
-│          │ (local docs)  │  │ (Brave/SearXNG/    │                  │
-│          └──────┬────────┘  │  Serper/Tavily)    │                  │
-│                 │           └────────────────────┘                  │
-│    ┌────────────▼──────────────────┐                                │
-│    │         vllm-server           │  :30000                        │
-│    │  (OpenAI-compatible LLM API)  │                                │
-│    │  any HuggingFace model        │                                │
-│    └───────────────────────────────┘                                │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────┼───────────────────────────────────────┐
-│                       Knowledge Base                                │
-│                             │                                       │
-│          ┌──────────────────▼──────────────────┐                   │
-│          │              qdrant                  │  :30333           │
-│          │         (Vector Database)            │                   │
-│          └──────────────────▲──────────────────┘                   │
-│                             │ vectors                               │
-│          ┌──────────────────┴──────────────────┐                   │
-│          │            embedding                 │  :30082           │
-│          │    (nomic-embed-text-v1.5)           │                   │
-│          └──────────────────▲──────────────────┘                   │
-│                             │ text chunks                           │
-│          ┌──────────────────┴──────────────────┐                   │
-│          │            ingestion                 │  :30083           │
-│          │   (URL scraper → chunker → embed)    │                   │
-│          └─────────────────────────────────────┘                   │
-└─────────────────────────────────────────────────────────────────────┘
+Query & response path
+  User → Open-WebUI (:30080) → ai-agent (:30081)
+  ai-agent runs hybrid retrieval:
+    • embed query         → embedding service   (:30082, nomic-embed-text-v1.5)
+    • vector search       → Qdrant              (:30333)
+    • lexical search BM25 → ingestion SQLite FTS5 (:30083)
+    • fuse (RRF) + rerank → reranker            (:30084, bge-reranker-v2-m3) → top-5
+    • generate answer     → vLLM                (:30000, local LLM)
+  ai-agent → Open-WebUI: answer + sources + verified citations
+  optional: web_search   → SearXNG             (:8080, off by default)
+
+Ingestion pipeline
+  Sources: Watch folder (drop) · Web URLs (/ingest, /ingest/deep) · RAG Admin UI (:8005)
+    → ingestion service (:30083): PyMuPDF + Tesseract OCR, recursive chunk 256/64, page-aware
+        → embedding service → Qdrant      (vector index)
+        → SQLite FTS5                     (BM25 lexical index)
+
+Logical flow is identical for Docker Compose and Kubernetes; only the physical
+layout differs (GPU sharing, host ports vs NodePorts). See the diagram's
+"Deployment notes" box.
 ```
 
 </details>
@@ -106,7 +78,7 @@ See [Quick start](#quick-start) below for the full, step-by-step version (model 
 1. User sends a message in **Open-WebUI**
 2. Open-WebUI forwards it to **ai-agent** via the OpenAI-compatible `/v1/chat/completions` endpoint
 3. ai-agent decides which tool to call:
-   - `rag_search` — rewrites the query, embeds it, searches all Qdrant collections for top-20 candidates, reranks via cross-encoder to top-5
+   - `rag_search` — hybrid retrieval: embeds the query and runs vector search (Qdrant) + lexical BM25 search (SQLite FTS5) across all collections, fuses the two with RRF into a top-20 pool, then reranks via cross-encoder to top-5 (optional query rewriting is off by default — see `docs/ENHANCEMENT-PLAN.md`)
    - `web_search` — calls your configured web search provider (Brave, SearXNG, Serper, or Tavily)
 4. Tool results are injected back into the LLM context
 5. **vllm-server** generates the final response
