@@ -25,6 +25,10 @@ INGESTION_PUBLIC_URL = os.getenv("INGESTION_PUBLIC_URL", "")
 # Verified citations: ask the model for verbatim supporting quotes and check each
 # against the retrieved chunk text. Empty/false = off. See ENHANCEMENT-PLAN Phase 4e.
 CITE_VERIFY = os.getenv("CITE_VERIFY", "true").lower() in ("1", "true", "yes")
+# Query rewriting before retrieval. Phase 5 ablation showed it is net-negative for
+# dense retrieval with nomic (keyword text embeds worse than the natural question),
+# so default off. See ENHANCEMENT-PLAN Phase 5/6.
+QUERY_REWRITE = os.getenv("QUERY_REWRITE", "false").lower() in ("1", "true", "yes")
 
 # ── Web Search Provider ───────────────────────────────────────────────────────
 # Set WEB_SEARCH_PROVIDER in the ai-agent Helm chart values.yaml. Options:
@@ -190,7 +194,7 @@ def _rrf_merge(
 
 # ── RAG Search ───────────────────────────────────────────────────────────────
 async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
-    search_query = await rewrite_query(query)
+    search_query = await rewrite_query(query) if QUERY_REWRITE else query
     qdrant_headers = {"api-key": QDRANT_API_KEY} if QDRANT_API_KEY else {}
 
     async with httpx.AsyncClient(timeout=30.0) as client:

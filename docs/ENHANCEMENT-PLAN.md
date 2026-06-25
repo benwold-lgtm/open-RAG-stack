@@ -254,6 +254,7 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 
 **Follow-up diagnostics (2026-06-24):**
 - **Page-level match** (`--match page`): hit@5 0.738 → **0.770** (+0.03 only). The recall gap is *real*, not a single-gold scoring artifact — most misses are genuine, not "right page, wrong chunk."
+- **Doc-level match** (`--match doc`): hit@5 **0.934**, hit@20 **0.951** — the embedder retrieves the right *document* ~93–95% of the time. The ~19-pt gap down to chunk-level (0.74) is **intra-document localization** — a chunking problem, **not** an embedder problem. Decisive diagnostic → Phase 6.
 - **Larger pool** (`--top-k 40`): hit@40 = **0.738**, identical to hit@20 → widening the first-stage pool does nothing; missed chunks aren't in ranks 21–40 either.
 - **Query rewriting is net-negative**: at top_k=40, `-rewrite` scored **0.754 > 0.738** full. Rewriting a natural question into keyword text embeds *worse* with nomic (trained on natural-language queries). Candidate to disable / make optional — validate on real multi-turn queries first (rewrite may still help pronoun/acronym resolution this single-shot synthetic set doesn't capture).
 - **Hybrid lexical**: neutral on this synthetic set; kept (cheap, helps real keyword queries the synthetic set under-represents).
@@ -270,6 +271,21 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 - **Reranker: keep** (validated lift). **Query rewriting: candidate to drop** (neutral-to-negative + an extra LLM call). **Hybrid: keep** (cheap insurance).
 - **Latency is generation-bound.** retrieval p95 0.77s ✓; e2e p95 8.75s ✗ vs the <3s target — entirely the 8B generating on a shared 3090.
 - **3090 vs L40S:** the 3090 is fine for retrieval and single-user functional validation. **L40S is warranted for production** to fix answer latency/throughput and to run a larger LLM (which also lifts the verbatim-quote fidelity noted in Phase 4e) — driven by *generation*, not retrieval.
+
+---
+
+### Phase 6: Retrieval Recall — Chunking
+
+> **Context.** Phase 5's doc-level diagnostic is decisive: the embedder retrieves the right *document* 93–95% of the time, but the right *chunk* only ~74%. The gap is **intra-document localization** — wrong chunk within the right doc — so the lever is **chunking**, not the embedder (which would be churn + an `EMBEDDING_DIM` change for no gain).
+>
+> **Eval methodology.** Re-ingesting re-chunks the corpus, which invalidates the chunk-level gold `point_id`s — but `gold_page`/`gold_doc_id` are stable (properties of the source). So **chunking experiments are scored at page level** (`run_eval.py --match page`). Baseline to beat: **page-level hit@5 = 0.770**; the ceiling to chase is doc-level **0.934**. Each experiment requires a full re-ingest of the corpus.
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 6.1 | Query-rewrite toggle (default off) + chunk params `.env`-tunable | ✅ Done | `QUERY_REWRITE` (ai-agent, default false) wired in compose + chart; `CHUNK_SIZE`/`CHUNK_OVERLAP` now `${..}`-overridable in compose. Phase 5 showed rewrite net-negative |
+| 6.2 | Experiment A — larger chunks (config only) | ⬜ Pending | Set bigger `CHUNK_SIZE`/`CHUNK_OVERLAP` in `.env`, re-ingest, measure `--match page` vs 0.770. Per-page chunking means chunks never cross pages, so page attribution stays clean |
+| 6.3 | Experiment B — contextual chunk headers (code) | ⬜ Pending | If A insufficient: prepend doc title / section heading to each chunk's *embedded* text (store clean content separately). Targets intra-doc localization directly |
+| 6.4 | Dense-vs-lexical rewrite routing (parked) | ⬜ Pending | Keep query rewriting but feed the keyword rewrite only to the **lexical/BM25** leg (where keywords help) while the **dense** leg gets the natural question. Lets rewriting return as a net positive |
 
 ---
 

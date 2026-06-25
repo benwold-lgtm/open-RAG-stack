@@ -71,6 +71,8 @@ spec:
               value: {{ .Values.ingestion.publicUrl | default "" | quote }}
             - name: CITE_VERIFY
               value: {{ .Values.citeVerify | default "true" | quote }}
+            - name: QUERY_REWRITE
+              value: {{ .Values.queryRewrite | default "false" | quote }}
             - name: RERANKER_URL
               value: {{ .Values.reranker.url | quote }}
           livenessProbe:

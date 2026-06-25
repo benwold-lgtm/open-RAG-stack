@@ -32,6 +32,10 @@ ingestion:
 # retrieved chunks and flags unverified ones. Set false to disable.
 citeVerify: "true"
 
+# Query rewriting before retrieval. Off by default — Phase 5 found it net-negative
+# for dense retrieval with nomic. Set "true" to re-enable.
+queryRewrite: "false"
+
 resources:
   requests:
     memory: "256Mi"

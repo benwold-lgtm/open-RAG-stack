@@ -94,8 +94,8 @@ services:
       QDRANT_API_KEY: ""
       EMBEDDING_URL: http://embedding:8001
       DB_PATH: /app/data/ingestion.db
-      CHUNK_SIZE: "512"
-      CHUNK_OVERLAP: "50"
+      CHUNK_SIZE: ${CHUNK_SIZE:-512}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-50}
       EMBEDDING_DIM: "768"
       OCR_ENABLED: "true"
       OCR_MIN_CHARS: "100"
@@ -180,6 +180,9 @@ services:
       # Verified citations: model emits verbatim quotes, agent checks them against
       # retrieved chunks and flags unverified ones. Set "false" to disable.
       CITE_VERIFY: "true"
+      # Query rewriting before retrieval. Off by default — Phase 5 found it
+      # net-negative for dense retrieval with nomic. Set "true" to re-enable.
+      QUERY_REWRITE: ${QUERY_REWRITE:-false}
       WEB_SEARCH_PROVIDER: "none"
     ports:
       - "8004:8000"
