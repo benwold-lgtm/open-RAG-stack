@@ -19,8 +19,8 @@ embedding:
   url: "http://embedding.embedding.svc.cluster.local:8001"
 
 config:
-  chunkSize: "256"
-  chunkOverlap: "25"
+  chunkSize: "256"      # Phase 6: 256 validated best (page-level hit@5 0.820 vs 0.770 at 512)
+  chunkOverlap: "64"
   embeddingDim: "768"
   # OCR fallback for image-rich PDF pages (Tesseract, CPU-only). Only fires on
   # pages whose text layer is shorter than ocrMinChars.
