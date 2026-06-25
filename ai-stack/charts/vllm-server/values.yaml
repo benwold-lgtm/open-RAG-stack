@@ -12,6 +12,11 @@ model:
 
 server:
   maxModelLen: 8192
+  # 0.90 assumes vLLM has the GPU to itself — correct here, since the embedding
+  # and reranker charts request no nvidia.com/gpu and run CPU-only in k8s. If you
+  # enable GPU time-slicing/MPS to co-locate them on one card (as docker-compose
+  # does), lower this to ~0.70 to leave VRAM headroom. See ENHANCEMENT-PLAN
+  # "Deployment Notes" — this is why compose uses 0.70 and the chart uses 0.90.
   gpuMemoryUtilization: "0.90"
   maxNumSeqs: 4
   maxNumBatchedTokens: 8192

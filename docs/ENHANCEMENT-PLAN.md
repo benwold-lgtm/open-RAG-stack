@@ -2,8 +2,10 @@
 ## Goal: NVIDIA Blueprint Parity — Fully Internal Deployment
 
 **Last Updated:** 2026-06-24
-**Status:** In Progress
+**Status:** Phases 1–6 complete & validated on bengpu1 (RTX 3090). Optional enhancements parked.
 **Maintained by:** open-RAG-stack contributors
+
+> **Program closeout (2026-06-24).** Shipped & validated end-to-end: hybrid search + reranker (Phases 2–4), page-aware PDF parsing with OCR fallback (4c), image + page citations in chat (4d), verified citations (4e), and an eval/benchmark harness (Phase 5). Phase 6 tuned retrieval: chunk size 256 and query-rewrite-off lifted page-level hit@5 from 0.770 → 0.820. **Parked (do when needed):** contextual retrieval (4.6/6.4/6.6 — diminishing returns vs effort), rag-admin UX (bulk delete, drop-folder-in-UI), and the L40S production model. Retrieval is well-tuned; the next quality lever is the LLM (generation), which is a hardware/model call, not a code one. See **Deployment Notes** for the Compose↔K8s parity audit.
 
 ---
 
@@ -285,9 +287,29 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 | 6.1 | Query-rewrite toggle (default off) + chunk params `.env`-tunable | ✅ Done | `QUERY_REWRITE` (ai-agent, default false) wired in compose + chart; `CHUNK_SIZE`/`CHUNK_OVERLAP` now `${..}`-overridable in compose. Phase 5 showed rewrite net-negative |
 | 6.2 | Experiment A — larger chunks (1024/128) | ✅ Done (negative) | page-level hit@5 **0.770 → 0.639** — *worse*. Bigger chunks embed as blurrier averages → right chunk ranks lower; `hit@20` also fell (0.770→0.656). Gradient says go smaller, not bigger. |
 | 6.3 | Experiment A2 — smaller chunks (256/64) | ✅ Done (win) | rewrite-off page-level hit@5 **0.770 → 0.820** (mrr 0.655→0.714, hit@20 0.836). Monotonic: 256 > 512 > 1024. **Locked 256/64 as the default** (compose + chart). Caveat: smaller chunks mildly inflate the page metric (more chunks/page); true arbiter is answer quality (deferred). Rewrite hurts *more* at 256 (full 0.705 vs -rewrite 0.820) — reconfirms toggle-off |
-| 6.4 | Experiment B — contextual chunk headers (code) | ⬜ Pending | If size tuning plateaus: prepend doc title / section heading to each chunk's *embedded* text (store clean content separately). Targets intra-doc localization directly |
+| 6.4 | Experiment B — contextual chunk headers (code) | ⏸️ Parked | Title-prefix is constant within a doc → won't help intra-doc localization; real contextual retrieval = LLM-per-chunk (~7.4k calls) or heading extraction. High effort, hard to measure cleanly (page-metric inflation), diminishing returns vs the 256/rewrite-off win. Revisit only if answer quality demands it |
 | 6.5 | Customizable drop folder in compose | ✅ Done | `WATCH_DIR`/`WATCH_HOST_DIR`/`WATCH_POLL_INTERVAL` wired into compose ingestion (mount → `/mnt/watch`); documented in `.env.example`. (UI-configurable drop folder = low-priority future item) |
-| 6.6 | Dense-vs-lexical rewrite routing (parked) | ⬜ Pending | Keep query rewriting but feed the keyword rewrite only to the **lexical/BM25** leg (where keywords help) while the **dense** leg gets the natural question. Lets rewriting return as a net positive |
+| 6.6 | Dense-vs-lexical rewrite routing | ⏸️ Parked | Keep query rewriting but feed the keyword rewrite only to the **lexical/BM25** leg (where keywords help) while the **dense** leg gets the natural question. Lets rewriting return as a net positive. Revisit with the future UX/changes batch |
+
+---
+
+## Deployment Notes — Compose ↔ Kubernetes parity (audit 2026-06-24)
+
+Static audit of the Helm charts vs the compose stack (not live-tested — no spare cluster). Service **images** are CI-built from the same `Dockerfile`/`main.py`, so application code + deps are identical across both; only env/config wiring can drift.
+
+**In parity (verified):**
+- ai-agent chart wires every env the service reads, including the new `INGESTION_PUBLIC_URL`, `CITE_VERIFY`, `QUERY_REWRITE`.
+- ingestion chart wires `OCR_ENABLED/MIN_CHARS/DPI` and `chunkSize: 256` / `chunkOverlap: 64`; all Docling wiring removed (`DOCLING_ARTIFACTS_PATH`, `modelStorage`).
+- Drop folder already supported in k8s via the ingestion `watchDir` block (compose gained the equivalent in Phase 6.5).
+
+**GPU topology — the one place compose and k8s legitimately differ:**
+- In **compose**, vLLM + embedding + reranker all share GPU 0, so `gpu-memory-utilization` must be **0.70** (the 0.85/0.90 default OOMs — see Phase 5 fix).
+- In **k8s**, only `vllm-server` requests `nvidia.com/gpu: 1` (exclusive); **embedding and reranker request no GPU → they run CPU-only**. So vLLM owns the card and `gpuMemoryUtilization: 0.90` is correct there. Do **not** lower it to match compose.
+
+**⚠️ Soundness flags for when the K8s path is exercised (needs hardware to validate):**
+1. **embedding/reranker are CPU-only in k8s today.** That's schedulable and correct on a single-GPU node, but slower than compose (where they're GPU-accelerated). The documented L40S budget assumes all three on the GPU — to realize that you must enable **NVIDIA device-plugin time-slicing/MPS**, add `nvidia.com/gpu` requests to the embedding/reranker charts, **and** lower vLLM's util to ~0.70 (the compose situation). Not wired today.
+2. **Set `ai-agent` `ingestion.publicUrl` to `http://<node-ip>:30083`** (the ingestion NodePort) for inline page images to load in the browser; default empty = text-only citations.
+3. vLLM `model.name` and `ai-agent` `vllm.baseUrl`/`vllm.model` must be filled per deployment (no defaults).
 
 ---
 
