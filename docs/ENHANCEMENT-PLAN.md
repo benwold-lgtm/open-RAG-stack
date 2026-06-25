@@ -283,9 +283,11 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 6.1 | Query-rewrite toggle (default off) + chunk params `.env`-tunable | ✅ Done | `QUERY_REWRITE` (ai-agent, default false) wired in compose + chart; `CHUNK_SIZE`/`CHUNK_OVERLAP` now `${..}`-overridable in compose. Phase 5 showed rewrite net-negative |
-| 6.2 | Experiment A — larger chunks (config only) | ⬜ Pending | Set bigger `CHUNK_SIZE`/`CHUNK_OVERLAP` in `.env`, re-ingest, measure `--match page` vs 0.770. Per-page chunking means chunks never cross pages, so page attribution stays clean |
-| 6.3 | Experiment B — contextual chunk headers (code) | ⬜ Pending | If A insufficient: prepend doc title / section heading to each chunk's *embedded* text (store clean content separately). Targets intra-doc localization directly |
-| 6.4 | Dense-vs-lexical rewrite routing (parked) | ⬜ Pending | Keep query rewriting but feed the keyword rewrite only to the **lexical/BM25** leg (where keywords help) while the **dense** leg gets the natural question. Lets rewriting return as a net positive |
+| 6.2 | Experiment A — larger chunks (1024/128) | ✅ Done (negative) | page-level hit@5 **0.770 → 0.639** — *worse*. Bigger chunks embed as blurrier averages → right chunk ranks lower; `hit@20` also fell (0.770→0.656). Gradient says go smaller, not bigger. |
+| 6.3 | Experiment A2 — smaller chunks (256/64) | ⬜ Pending | 512→1024 got worse, so test 512→256. k8s chart default was already 256. Re-ingest, measure `--match page` vs 0.770 |
+| 6.4 | Experiment B — contextual chunk headers (code) | ⬜ Pending | If size tuning plateaus: prepend doc title / section heading to each chunk's *embedded* text (store clean content separately). Targets intra-doc localization directly |
+| 6.5 | Customizable drop folder in compose | ✅ Done | `WATCH_DIR`/`WATCH_HOST_DIR`/`WATCH_POLL_INTERVAL` wired into compose ingestion (mount → `/mnt/watch`); documented in `.env.example`. (UI-configurable drop folder = low-priority future item) |
+| 6.6 | Dense-vs-lexical rewrite routing (parked) | ⬜ Pending | Keep query rewriting but feed the keyword rewrite only to the **lexical/BM25** leg (where keywords help) while the **dense** leg gets the natural question. Lets rewriting return as a net positive |
 
 ---
 

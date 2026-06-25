@@ -100,9 +100,14 @@ services:
       OCR_ENABLED: "true"
       OCR_MIN_CHARS: "100"
       OCR_DPI: "200"
+      # Drop folder (bulk auto-ingest). Off unless WATCH_DIR is set to /mnt/watch.
+      # Files in <WATCH_HOST_DIR>/<vendor>/ are auto-ingested; subfolder = collection+vendor.
+      WATCH_DIR: ${WATCH_DIR:-}
+      WATCH_POLL_INTERVAL: ${WATCH_POLL_INTERVAL:-60}
     volumes:
       - ingestion_data:/app/data
       - ${MODEL_DIR:-./models}:/models:ro
+      - ${WATCH_HOST_DIR:-./rag-watch}:/mnt/watch
     ports:
       - "8002:8002"
     depends_on:
