@@ -2,7 +2,7 @@
 ## Goal: NVIDIA Blueprint Parity — Fully Internal Deployment
 
 **Last Updated:** 2026-06-26
-**Status:** Phases 1–6 complete & validated on bengpu1 (RTX 3090). **Phase 7 (rag-admin UX & hardening) in progress.**
+**Status:** Phases 1–6 complete & validated on the GPU node (RTX 3090). **Phase 7 (rag-admin UX & hardening) in progress.**
 **Maintained by:** open-RAG-stack contributors
 
 > **Program closeout (2026-06-24).** Shipped & validated end-to-end: hybrid search + reranker (Phases 2–4), page-aware PDF parsing with OCR fallback (4c), image + page citations in chat (4d), verified citations (4e), and an eval/benchmark harness (Phase 5). Phase 6 tuned retrieval: chunk size 256 and query-rewrite-off lifted page-level hit@5 from 0.770 → 0.820. Retrieval is well-tuned; the next quality lever is the LLM (generation), which is a hardware/model call, not a code one. See **Deployment Notes** for the Compose↔K8s parity audit.
@@ -172,7 +172,7 @@ POST /rerank
 | 4c.5 | Page-image render endpoint | ✅ Done | `GET /documents/{id}/pages/{n}/image` renders from the stored file via `fitz` → PNG; no PNG persisted |
 | 4c.6 | OCR config env vars | ✅ Done | `OCR_ENABLED=true`, `OCR_MIN_CHARS=100`, `OCR_DPI=200` — added to `docker-compose.yml` + ingestion chart (`config.ocr*`) |
 | 4c.7 | Remove vestigial Docling wiring | ✅ Done | Removed `DOCLING_ARTIFACTS_PATH` + `modelStorage` block (compose, chart deployment/values), Docling download from `scripts/download-models.sh`, and `.env.example` docling layout note |
-| 4c.8 | CI build + on-node verification | ✅ Done | Verified 2026-06-24 on bengpu1 with a born-digital Dell white paper: status `completed`, 72 chunks, lexical search returns figure-adjacent content, page-image endpoint renders PNGs. Born-digital text path confirmed; OCR-on-scanned-page path not yet exercised (this PDF had a full text layer) — spot-check later with an image-only/scanned PDF. |
+| 4c.8 | CI build + on-node verification | ✅ Done | Verified 2026-06-24 on the GPU node with a born-digital Dell white paper: status `completed`, 72 chunks, lexical search returns figure-adjacent content, page-image endpoint renders PNGs. Born-digital text path confirmed; OCR-on-scanned-page path not yet exercised (this PDF had a full text layer) — spot-check later with an image-only/scanned PDF. |
 
 **Deliberately deferred (follow-on):**
 - Surfacing the page image + page citation in the chat UI (ai-agent context formatting + open-webui rendering).
@@ -196,7 +196,7 @@ POST /rerank
 | 4d.2 | Add `INGESTION_PUBLIC_URL` config | ✅ Done | `ai-agent/main.py`; default `""` = text-only citations |
 | 4d.3 | Enriched Sources renderer | ✅ Done | `format_sources()` — dedup by `(doc_id/url, page)`; append `— p.{page}`; emit a "Referenced pages" block with inline `![](…/pages/{n}/image)` only when `has_image` + `page` + `INGESTION_PUBLIC_URL` are all present |
 | 4d.4 | Wire config | ✅ Done | `docker-compose.yml` (`${INGESTION_PUBLIC_URL:-}`), `.env.example` (commented, `<host-ip>` placeholder), ai-agent Helm chart (`ingestion.publicUrl`) |
-| 4d.5 | On-node verification | ✅ Done | Verified 2026-06-24 on bengpu1: agent answer shows `— p.N` citations; only the `has_image:true` page (p.11) emits a "Referenced pages" inline image; `sources[]` carries `doc_id`/`page`/`has_image`; dedup collapses chunks to distinct pages. Final visual confirmation = image renders inline in Open WebUI. (Also fixed: vLLM `gpu-memory-utilization` 0.85→0.70 default — it shares GPU 0 with embedding+reranker; see `VLLM_GPU_UTIL`.) |
+| 4d.5 | On-node verification | ✅ Done | Verified 2026-06-24 on the GPU node: agent answer shows `— p.N` citations; only the `has_image:true` page (p.11) emits a "Referenced pages" inline image; `sources[]` carries `doc_id`/`page`/`has_image`; dedup collapses chunks to distinct pages. Final visual confirmation = image renders inline in Open WebUI. (Also fixed: vLLM `gpu-memory-utilization` 0.85→0.70 default — it shares GPU 0 with embedding+reranker; see `VLLM_GPU_UTIL`.) |
 
 **Deferred (separate follow-ons):**
 - Inline `[1]`/`[2]` citation markers tied to individual claims, and the verified-quote-matching layer — both belong to the citations-accuracy work, not this UI-surfacing task.
@@ -222,7 +222,7 @@ POST /rerank
 | 4e.3 | Parse + verify helpers | ✅ Done | `extract_citations()`, `verify_citations()` (normalized substring match per source → page attribution), `format_citations()` (✓/⚠ render) |
 | 4e.4 | Integrate in `chat_completions` | ✅ Done | Strips quote block from the visible answer; appends "Verified quotes" (✓ "…" — p.N / ⚠ "…" — not found); adds `citations` to response JSON. Verification skipped for web-only answers (no RAG sources) |
 | 4e.5 | Wire config | ✅ Done | `docker-compose.yml` + ai-agent Helm chart (`citeVerify`/`CITE_VERIFY`) |
-| 4e.6 | On-node verification | ✅ Done | Verified 2026-06-24 on bengpu1: 3 verbatim quotes all ✓, each attributed to the correct matched page (incl. p.11 vs p.10 disambiguation); structured `citations[]` in JSON. The 8B quoted verbatim here — ⚠ path (paraphrase/fabrication) is the trivial else-branch, will surface naturally when the model rewords. |
+| 4e.6 | On-node verification | ✅ Done | Verified 2026-06-24 on the GPU node: 3 verbatim quotes all ✓, each attributed to the correct matched page (incl. p.11 vs p.10 disambiguation); structured `citations[]` in JSON. The 8B quoted verbatim here — ⚠ path (paraphrase/fabrication) is the trivial else-branch, will surface naturally when the model rewords. |
 
 **Known limitation:** small models often *paraphrase* rather than quote verbatim, which will show as ⚠ even when the claim is sound — the flag means "not verbatim-verifiable," not "false." Larger models (L40S) quote more faithfully. The `Sources`/page citations from Phase 4d remain the always-on provenance; verified quotes are an additional, best-effort integrity layer.
 
@@ -305,6 +305,7 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 
 | # | Task | Status | Notes |
 |---|---|---|---|
+| 7.0 | Docs anonymization scrub | ✅ Done | Prior pass placeholdered IPs correctly but missed one leaked internal GPU-node hostname — now replaced with the neutral "the GPU node" across this plan + `eval/README.md`. By decision, the LICENSE copyright holder and the public GHCR image handle are kept (the handle is already exposed by the repo URL; the image paths must match where images live). Use "the GPU node (RTX 3090)" in future on-node notes. |
 | 7.P1 | Helm chart for `rag-admin` | ✅ Done | `ai-stack/charts/rag-admin/` — Deployment + Service (NodePort **30085**), `INGESTION_URL`, non-root uid 1000, health probes. P6 auth-secret wiring (`auth.enabled` → `ADMIN_USER`/`ADMIN_PASSWORD` from `secretKeyRef`) included now so the chart isn't touched twice. Mirrors the reranker/ai-agent chart structure. |
 | 7.P2 | Error visibility — click `failed` status → reason | ✅ Done | Frontend only; `documents.error` was already stored and returned in the list payload. Failed-status badge is now clickable → modal with the stored failure reason + source/collection/vendor. Folds in **finding #3** (`esc()` now escapes `'`; delete/error use `data-*` + event delegation instead of inline-onclick string building). |
 | 7.P3 | Sort + filter the document table | ✅ Done | Client-side on the fetched array: click-to-sort headers (Source/Collection/Vendor/Type/Status/Updated, asc/desc arrows) + a free-text filter box. Folds in **finding #4** (upload-queue badge now reflects the real terminal status via `syncQueueBadges` instead of a blind 30 s auto-remove). |

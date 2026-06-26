@@ -2,7 +2,7 @@
 
 Stdlib-only Python scripts that measure the running stack. They talk to the
 services **directly** (not through the ai-agent) so retrieval can be ablated
-cleanly. Run them on a host that can reach the services (e.g. bengpu1).
+cleanly. Run them on a host that can reach the services (e.g. the GPU node).
 
 > **Privacy:** generated Q&A and results contain your internal-doc content and
 > are **gitignored** (`dataset*.jsonl`, `results*`). Only these scripts are
