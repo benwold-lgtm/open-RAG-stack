@@ -104,6 +104,7 @@ Use `scripts/link-scrape.sh` to ingest a URL, or POST directly to the ingestion 
 | `embedding` | `ghcr.io/benwold-lgtm/open-rag-embedding` | 30082 | Embedding service (nomic-embed-text-v1.5) |
 | `ingestion` | `ghcr.io/benwold-lgtm/open-rag-ingestion` | 30083 | Document ingestion pipeline |
 | `reranker` | `ghcr.io/benwold-lgtm/open-rag-reranker` | 30084 | Cross-encoder reranker (BAAI/bge-reranker-v2-m3) |
+| `rag-admin` | `ghcr.io/benwold-lgtm/open-rag-admin` | 30085 | Admin UI — document ingestion/management (proxies to ingestion) |
 | `vllm-server` | `vllm/vllm-openai` | 30000 | LLM inference (OpenAI-compatible) |
 | `qdrant` | `qdrant/qdrant` | 30333 | Vector database |
 

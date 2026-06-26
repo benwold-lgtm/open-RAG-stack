@@ -76,6 +76,20 @@ tr:hover td{background:#f8fafc}
 .note{font-size:.72rem;color:#94a3b8;margin-top:.75rem;line-height:1.6;padding:.6rem .75rem;background:#f8fafc;border-radius:6px;border-left:3px solid #e2e8f0}
 details summary{font-size:.8rem;color:#64748b;cursor:pointer;user-select:none;padding:.25rem 0}
 details .inner{margin-top:.75rem}
+/* sortable headers, filter, error modal (Phase 7 P2/P3) */
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:#2563eb}
+th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
+.docs-hd input{width:160px}
+.sb.clickable{cursor:pointer;text-decoration:underline dotted}
+.sb.clickable:hover{filter:brightness(.95)}
+.modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:200}
+.modal-bg.show{display:flex}
+.modal{background:#fff;border-radius:8px;max-width:580px;width:90%;max-height:80vh;overflow:auto;padding:1.4rem;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modal h3{font-size:1rem;color:#dc2626;margin-bottom:.75rem}
+.modal .meta{font-size:.8rem;color:#475569;line-height:1.7;margin-bottom:.5rem}
+.modal .meta b{color:#1e293b}
+.modal pre{background:#0f172a;color:#fca5a5;padding:.8rem;border-radius:6px;font-size:.74rem;white-space:pre-wrap;word-break:break-word;margin:.5rem 0 1rem;font-family:ui-monospace,monospace}
 </style>
 </head>
 <body>
@@ -161,6 +175,7 @@ details .inner{margin-top:.75rem}
     <div class="docs-hd">
       <h2>Documents</h2>
       <div class="sp"></div>
+      <input type="text" id="filter-text" placeholder="Filter&hellip;" oninput="renderDocs()">
       <select id="filter-col" onchange="loadDocs()">
         <option value="">All collections</option>
       </select>
@@ -169,12 +184,12 @@ details .inner{margin-top:.75rem}
     <table>
       <thead>
         <tr>
-          <th>Source</th>
-          <th>Collection</th>
-          <th>Vendor</th>
-          <th>Type</th>
-          <th>Status</th>
-          <th>Updated</th>
+          <th class="sortable" onclick="sortBy('src')">Source<span class="arrow" data-k="src"></span></th>
+          <th class="sortable" onclick="sortBy('collection')">Collection<span class="arrow" data-k="collection"></span></th>
+          <th class="sortable" onclick="sortBy('vendor')">Vendor<span class="arrow" data-k="vendor"></span></th>
+          <th class="sortable" onclick="sortBy('source_type')">Type<span class="arrow" data-k="source_type"></span></th>
+          <th class="sortable" onclick="sortBy('status')">Status<span class="arrow" data-k="status"></span></th>
+          <th class="sortable" onclick="sortBy('updated_at')">Updated<span class="arrow" data-k="updated_at"></span></th>
           <th></th>
         </tr>
       </thead>
@@ -185,6 +200,14 @@ details .inner{margin-top:.75rem}
   </div>
 </main>
 <div class="toasts" id="toasts"></div>
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h3 id="modal-title">Details</h3>
+    <div class="meta" id="modal-meta"></div>
+    <pre id="modal-error"></pre>
+    <button class="btn btn-ghost btn-sm" onclick="closeModal()">Close</button>
+  </div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 
@@ -197,7 +220,7 @@ function toast(msg, type='info') {
 }
 
 function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function col() { return $('col-sel').value; }
@@ -241,42 +264,112 @@ async function createCollection() {
 }
 
 // ── documents ─────────────────────────────────────────────────────────────────
+let docsCache = [];
+let sortKey = 'updated_at';
+let sortDir = -1;  // 1 = ascending, -1 = descending
+
+const TYPE_ICON = {url:'🔗', document:'📄', deep_crawl:'🕷️'};
+const STATUS_LABEL = {completed:'done', failed:'error', unchanged:'unchanged'};
+
+function srcOf(d) { return d.url || d.id || ''; }
+
 async function loadDocs() {
   const c = $('filter-col').value;
   const url = '/documents' + (c ? '?collection=' + encodeURIComponent(c) : '');
   const data = await fetch(url).then(r=>r.json()).catch(()=>({documents:[]}));
-  const docs = data.documents || [];
+  docsCache = data.documents || [];
+  renderDocs();
+  syncQueueBadges();
+}
+
+function sortBy(k) {
+  if (sortKey === k) sortDir = -sortDir;
+  else { sortKey = k; sortDir = 1; }
+  renderDocs();
+}
+
+function renderDocs() {
   const tbody = $('docs-body');
-  if (!docs.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem">No documents yet</td></tr>';
+  const q = $('filter-text').value.trim().toLowerCase();
+
+  let rows = docsCache.slice();
+  if (q) {
+    rows = rows.filter(d =>
+      (srcOf(d) + ' ' + (d.collection||'') + ' ' + (d.vendor||'') + ' ' +
+       (d.source_type||'') + ' ' + (d.status||'')).toLowerCase().includes(q)
+    );
+  }
+
+  rows.sort((a, b) => {
+    let va = sortKey === 'src' ? srcOf(a) : a[sortKey];
+    let vb = sortKey === 'src' ? srcOf(b) : b[sortKey];
+    va = (va == null ? '' : String(va)).toLowerCase();
+    vb = (vb == null ? '' : String(vb)).toLowerCase();
+    if (va < vb) return -sortDir;
+    if (va > vb) return sortDir;
+    return 0;
+  });
+
+  document.querySelectorAll('th .arrow').forEach(s => {
+    s.textContent = (s.dataset.k === sortKey) ? (sortDir === 1 ? '▲' : '▼') : '';
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem">' +
+      (docsCache.length ? 'No documents match the filter' : 'No documents yet') + '</td></tr>';
     return;
   }
-  const TYPE_ICON = {url:'🔗', document:'📄', deep_crawl:'🕷️'};
-  const STATUS_LABEL = {completed:'done', failed:'error', unchanged:'unchanged'};
-  tbody.innerHTML = docs.map(d => {
-    const src = d.url || d.id || '';
+
+  tbody.innerHTML = rows.map(d => {
+    const src = srcOf(d);
     const short = src.length > 55 ? '…' + src.slice(-52) : src;
     const date = (d.updated_at || '').slice(0, 16).replace('T', ' ') || '—';
     const icon = TYPE_ICON[d.source_type] || '📄';
     const statusLabel = STATUS_LABEL[d.status] || d.status;
+    const isErr = d.status === 'failed';
+    const badge = '<span class="sb s-' + esc(d.status) + (isErr ? ' clickable" data-err="' + esc(d.id) : '') +
+      '"' + (isErr ? ' title="Click for the failure reason"' : '') + '>' + esc(statusLabel) + '</span>';
     return '<tr>' +
       '<td class="src" title="' + esc(src) + '">' + esc(short) + '</td>' +
       '<td>' + esc(d.collection || '') + '</td>' +
       '<td>' + esc(d.vendor || '—') + '</td>' +
       '<td>' + icon + ' ' + esc(d.source_type || '') + '</td>' +
-      '<td><span class="sb s-' + esc(d.status) + '">' + esc(statusLabel) + '</span></td>' +
+      '<td>' + badge + '</td>' +
       '<td style="white-space:nowrap;color:#64748b">' + date + '</td>' +
-      '<td><button class="btn btn-danger btn-sm" onclick="deleteDoc(\'' + esc(d.id) + '\')">&#x2715;</button></td>' +
+      '<td><button class="btn btn-danger btn-sm" data-del="' + esc(d.id) + '">&#x2715;</button></td>' +
       '</tr>';
   }).join('');
 }
 
+// delegated row actions — robust to ids (no inline-onclick string building)
+$('docs-body').addEventListener('click', e => {
+  const del = e.target.closest('[data-del]');
+  if (del) { deleteDoc(del.dataset.del); return; }
+  const err = e.target.closest('[data-err]');
+  if (err) { showError(err.dataset.err); }
+});
+
 async function deleteDoc(id) {
   if (!confirm('Delete this document and remove its vectors from Qdrant?')) return;
-  const r = await fetch('/documents/' + id, {method:'DELETE'});
+  const r = await fetch('/documents/' + encodeURIComponent(id), {method:'DELETE'});
   toast(r.ok ? 'Document deleted' : 'Delete failed', r.ok ? 'info' : 'error');
   loadDocs();
 }
+
+function showError(id) {
+  const d = docsCache.find(x => x.id === id);
+  if (!d) return;
+  $('modal-title').textContent = 'Ingestion failed';
+  $('modal-meta').innerHTML =
+    '<div><b>Source:</b> ' + esc(srcOf(d)) + '</div>' +
+    '<div><b>Collection:</b> ' + esc(d.collection || '—') + ' &nbsp; <b>Vendor:</b> ' + esc(d.vendor || '—') + '</div>' +
+    '<div><b>Updated:</b> ' + esc((d.updated_at || '').replace('T', ' ')) + '</div>';
+  $('modal-error').textContent = d.error || '(no error detail was recorded)';
+  $('modal-bg').classList.add('show');
+}
+
+function closeModal() { $('modal-bg').classList.remove('show'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // ── file upload ───────────────────────────────────────────────────────────────
 const dz = $('dz');
@@ -308,17 +401,32 @@ async function uploadFile(file) {
     const badge = item.querySelector('.sb');
     if (r.ok) {
       badge.className = 'sb s-pending'; badge.textContent = 'queued';
+      if (data.doc_id) item.dataset.docid = data.doc_id;  // tracked until a terminal status
       toast(file.name + ' queued', 'success');
     } else {
-      badge.className = 'sb s-error'; badge.textContent = 'error';
+      badge.className = 'sb s-failed'; badge.textContent = 'error';
       toast(file.name + ': ' + (data.detail || 'error'), 'error');
+      setTimeout(() => item.remove(), 8000);
     }
   } catch {
     const badge = item.querySelector('.sb');
-    badge.className = 'sb s-error'; badge.textContent = 'failed';
+    badge.className = 'sb s-failed'; badge.textContent = 'failed';
     toast('Upload failed: ' + file.name, 'error');
+    setTimeout(() => item.remove(), 8000);
   }
-  setTimeout(() => item.remove(), 30000);
+}
+
+// reflect the real ingestion outcome on queued upload items, then retire them
+function syncQueueBadges() {
+  document.querySelectorAll('#queue .qi[data-docid]').forEach(item => {
+    const d = docsCache.find(x => x.id === item.dataset.docid);
+    if (!d || !['completed','failed','unchanged'].includes(d.status)) return;
+    const badge = item.querySelector('.sb');
+    badge.className = 'sb s-' + d.status;
+    badge.textContent = STATUS_LABEL[d.status] || d.status;
+    delete item.dataset.docid;
+    setTimeout(() => item.remove(), 6000);
+  });
 }
 
 // ── URL ingestion ─────────────────────────────────────────────────────────────

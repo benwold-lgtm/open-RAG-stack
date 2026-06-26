@@ -1,0 +1,38 @@
+image:
+  repository: ghcr.io/benwold-lgtm/open-rag-admin
+  tag: latest  # built by CI from this repo — pin to a specific tag for production
+  pullPolicy: Always
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: NodePort
+  port: 8005
+  nodePort: 30085
+
+ingestion:
+  url: "http://ingestion.ingestion.svc.cluster.local:8002"
+
+# ── Authentication (single admin credential) ─────────────────────────────────
+# Off by default for backward-compat. Enforced as of Phase 7 (P6). When enabled,
+# the whole UI and all proxied write/delete routes require HTTP Basic Auth.
+# Create the secret first, then set enabled: true:
+#   kubectl create secret generic rag-admin-auth -n rag-admin \
+#     --from-literal=ADMIN_USER=admin \
+#     --from-literal=ADMIN_PASSWORD=<password>
+auth:
+  enabled: false
+  secretName: rag-admin-auth  # pre-created secret with ADMIN_USER / ADMIN_PASSWORD keys
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "500m"
+
+# CPU-only proxy — runs on any worker. Pin only if you want it co-located.
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>
