@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-admin
+  namespace: rag-admin
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: rag-admin
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      nodePort: {{ .Values.service.nodePort }}

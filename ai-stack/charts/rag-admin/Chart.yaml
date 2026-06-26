@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rag-admin
+description: Internal admin UI for document ingestion — proxies to the ingestion service
+type: application
+version: 0.1.0
+appVersion: "latest"
