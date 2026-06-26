@@ -121,6 +121,34 @@ async def ensure_collection(collection: str):
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE)
         )
 
+def _copy_points(client, source: str, target: str, scroll_filter=None, batch: int = 256) -> int:
+    """Copy points (vectors + payload) from one Qdrant collection to another,
+    re-tagging each payload's `collection` field. Point IDs are preserved so the
+    FTS5 rows (keyed by point_id) stay valid. Returns the number of points copied.
+    All collections share one vector config (EMBEDDING_DIM), so no re-embedding."""
+    copied = 0
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=source,
+            scroll_filter=scroll_filter,
+            with_payload=True,
+            with_vectors=True,
+            limit=batch,
+            offset=offset,
+        )
+        if not points:
+            break
+        retagged = [
+            PointStruct(id=p.id, vector=p.vector, payload={**(p.payload or {}), "collection": target})
+            for p in points
+        ]
+        client.upsert(collection_name=target, points=retagged)
+        copied += len(retagged)
+        if offset is None:
+            break
+    return copied
+
 # ── Text chunking ─────────────────────────────────────────────────────────────
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
     splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
@@ -730,6 +758,12 @@ class DeepIngestRequest(BaseModel):
 class CollectionCreateRequest(BaseModel):
     name: str
 
+class MoveDocumentRequest(BaseModel):
+    target_collection: str
+
+class RenameCollectionRequest(BaseModel):
+    new_name: str
+
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 
 @app.post("/ingest/url")
@@ -927,6 +961,43 @@ async def delete_document(doc_id: str):
 
     return {"message": f"Document {doc_id} deleted successfully"}
 
+@app.post("/documents/{doc_id}/move")
+async def move_document(doc_id: str, request: MoveDocumentRequest):
+    """Move a document to another collection. A 'collection' is a real Qdrant
+    collection, so this migrates the doc's points (carrying their vectors — no
+    re-embed) and updates the SQLite + FTS5 records."""
+    target = request.target_collection.strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="target_collection is required")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM documents WHERE id=?", (doc_id,)) as cursor:
+            row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+    source = dict(row)["collection"]
+    if source == target:
+        raise HTTPException(status_code=400, detail="Document is already in that collection")
+
+    await ensure_collection(target)
+    client = get_qdrant()
+    existing = [c.name for c in client.get_collections().collections]
+    flt = Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))])
+
+    moved = 0
+    if source in existing:
+        moved = _copy_points(client, source, target, scroll_filter=flt)
+        client.delete(collection_name=source, points_selector=flt)
+
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE documents SET collection=?, updated_at=? WHERE id=?", (target, now, doc_id))
+        await db.execute("UPDATE fts SET collection=? WHERE doc_id=?", (target, doc_id))
+        await db.commit()
+
+    return {"message": f"Moved document from '{source}' to '{target}'", "points_moved": moved}
+
 @app.get("/collections")
 async def list_collections():
     client = get_qdrant()
@@ -940,6 +1011,37 @@ async def list_collections():
 async def create_collection(request: CollectionCreateRequest):
     await ensure_collection(request.name)
     return {"message": f"Collection '{request.name}' ready"}
+
+@app.post("/collections/{name}/rename")
+async def rename_collection(name: str, request: RenameCollectionRequest):
+    """Rename a collection. Qdrant has no native rename, so this creates the new
+    collection, migrates every point into it (carrying vectors), drops the old
+    one, and re-tags the SQLite + FTS5 records. O(points) — can be slow for large
+    collections."""
+    new_name = request.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="new_name is required")
+    if new_name == name:
+        raise HTTPException(status_code=400, detail="new_name must differ from the current name")
+
+    client = get_qdrant()
+    existing = [c.name for c in client.get_collections().collections]
+    if name not in existing:
+        raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
+    if new_name in existing:
+        raise HTTPException(status_code=409, detail=f"Collection '{new_name}' already exists")
+
+    await ensure_collection(new_name)
+    moved = _copy_points(client, name, new_name)
+    client.delete_collection(collection_name=name)
+
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE documents SET collection=?, updated_at=? WHERE collection=?", (new_name, now, name))
+        await db.execute("UPDATE fts SET collection=? WHERE collection=?", (new_name, name))
+        await db.commit()
+
+    return {"message": f"Renamed collection '{name}' to '{new_name}'", "points_moved": moved}
 
 @app.get("/search/lexical")
 async def lexical_search(

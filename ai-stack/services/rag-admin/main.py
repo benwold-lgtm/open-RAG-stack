@@ -1,11 +1,38 @@
 import os
+import base64
+import secrets
 import httpx
+from urllib.parse import quote
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, Response
 
 INGESTION_URL = os.environ.get("INGESTION_URL", "http://ingestion:8002")
 
+# Optional HTTP Basic Auth (Phase 7.P6). Off unless BOTH are set, so existing
+# deploys are unaffected. When on, every route except /health requires the creds.
+ADMIN_USER = os.environ.get("ADMIN_USER", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+AUTH_ENABLED = bool(ADMIN_USER and ADMIN_PASSWORD)
+
 app = FastAPI(docs_url=None, redoc_url=None)
+
+
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    # /health stays open so container/k8s probes never need credentials.
+    if AUTH_ENABLED and request.url.path != "/health":
+        ok = False
+        header = request.headers.get("authorization", "")
+        if header.startswith("Basic "):
+            try:
+                user, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+                ok = (secrets.compare_digest(user, ADMIN_USER)
+                      and secrets.compare_digest(pw, ADMIN_PASSWORD))
+            except Exception:
+                ok = False
+        if not ok:
+            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="RAG Admin"'})
+    return await call_next(request)
 
 # ---------------------------------------------------------------------------
 # HTML page — served at GET /
@@ -102,7 +129,7 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
 <body>
 <nav>
   <h1>Open RAG Stack &mdash; Admin</h1>
-  <span class="badge">Internal tool &middot; no auth &middot; LAN only</span>
+  <span class="badge"><!--AUTH_BADGE--></span>
 </nav>
 <main>
   <!-- ── Left: ingest panel ─────────────────────────────────────────── -->
@@ -115,6 +142,7 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
         <div class="inline">
           <div class="field"><select id="col-sel"><option value="">Loading&hellip;</option></select></div>
           <button class="btn btn-ghost btn-sm" onclick="toggleNewCol()">+ New</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleRenameCol()">Rename</button>
         </div>
       </div>
       <div class="field" id="new-col-row" style="display:none">
@@ -123,6 +151,14 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
           <input type="text" id="new-col-input" placeholder="e.g. company-policies">
           <button class="btn btn-primary btn-sm" onclick="createCollection()">Create</button>
         </div>
+      </div>
+      <div class="field" id="rename-col-row" style="display:none">
+        <label>Rename selected collection</label>
+        <div style="display:flex;gap:.5rem">
+          <input type="text" id="rename-col-input" placeholder="new name">
+          <button class="btn btn-primary btn-sm" onclick="renameCollection()">Rename</button>
+        </div>
+        <p class="help">Moves all of this collection's documents and vectors to the new name. May take a moment for large collections.</p>
       </div>
 
       <div class="field">
@@ -175,9 +211,7 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
       </details>
 
       <div class="note">
-        &#9888; <strong>No authentication.</strong> This page is accessible to anyone on the LAN.
-        Future work: contributor roles (per-user write access), ingestion audit log.
-        See <code>docs/ENHANCEMENT-PLAN.md</code>.
+        <!--AUTH_NOTE-->
       </div>
     </div>
   </div>
@@ -220,6 +254,20 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
     <button class="btn btn-ghost btn-sm" onclick="closeModal()">Close</button>
   </div>
 </div>
+<div class="modal-bg" id="move-bg" onclick="if(event.target===this)closeMove()">
+  <div class="modal">
+    <h3 style="color:#2563eb">Move document</h3>
+    <div class="meta" id="move-meta"></div>
+    <div class="field" style="margin-top:.6rem">
+      <label>Target collection</label>
+      <select id="move-target"></select>
+    </div>
+    <div style="display:flex;gap:.5rem;margin-top:1rem">
+      <button class="btn btn-primary btn-sm" onclick="confirmMove()">Move</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeMove()">Cancel</button>
+    </div>
+  </div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 
@@ -239,9 +287,11 @@ function col() { return $('col-sel').value; }
 function vendor() { return $('vendor').value.trim() || 'admin'; }
 
 // ── collections ──────────────────────────────────────────────────────────────
+let collectionsCache = [];
 async function loadCollections() {
   const data = await fetch('/collections').then(r=>r.json()).catch(()=>({collections:[]}));
   const cols = (data.collections || []).map(c => c.name);
+  collectionsCache = cols;
   ['col-sel','filter-col'].forEach(id => {
     const sel = $(id);
     const placeholder = id === 'filter-col'
@@ -348,7 +398,8 @@ function renderDocs() {
       '<td>' + icon + ' ' + esc(d.source_type || '') + '</td>' +
       '<td>' + badge + '</td>' +
       '<td style="white-space:nowrap;color:#64748b">' + date + '</td>' +
-      '<td><button class="btn btn-danger btn-sm" data-del="' + esc(d.id) + '">&#x2715;</button></td>' +
+      '<td style="white-space:nowrap"><button class="btn btn-ghost btn-sm" data-move="' + esc(d.id) + '" title="Move to another collection">&#8631;</button> ' +
+      '<button class="btn btn-danger btn-sm" data-del="' + esc(d.id) + '">&#x2715;</button></td>' +
       '</tr>';
   }).join('');
 }
@@ -357,6 +408,8 @@ function renderDocs() {
 $('docs-body').addEventListener('click', e => {
   const del = e.target.closest('[data-del]');
   if (del) { deleteDoc(del.dataset.del); return; }
+  const mv = e.target.closest('[data-move]');
+  if (mv) { showMove(mv.dataset.move); return; }
   const err = e.target.closest('[data-err]');
   if (err) { showError(err.dataset.err); }
 });
@@ -381,7 +434,65 @@ function showError(id) {
 }
 
 function closeModal() { $('modal-bg').classList.remove('show'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ── move document (Phase 7.P4) ────────────────────────────────────────────────
+let moveDocId = null;
+function showMove(id) {
+  const d = docsCache.find(x => x.id === id);
+  if (!d) return;
+  moveDocId = id;
+  $('move-meta').innerHTML =
+    '<div><b>Document:</b> ' + esc(srcOf(d)) + '</div>' +
+    '<div><b>Current collection:</b> ' + esc(d.collection || '—') + '</div>';
+  const others = collectionsCache.filter(n => n !== d.collection);
+  $('move-target').innerHTML = others.length
+    ? others.map(n => '<option value="'+esc(n)+'">'+esc(n)+'</option>').join('')
+    : '<option value="">(create another collection first)</option>';
+  $('move-bg').classList.add('show');
+}
+function closeMove() { $('move-bg').classList.remove('show'); moveDocId = null; }
+async function confirmMove() {
+  const target = $('move-target').value;
+  if (!moveDocId || !target) { toast('Pick a target collection', 'error'); return; }
+  const r = await fetch('/documents/' + encodeURIComponent(moveDocId) + '/move', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({target_collection: target})
+  });
+  if (r.ok) { toast('Document moved to "' + target + '"', 'success'); closeMove(); loadDocs(); }
+  else { const d = await r.json().catch(()=>({})); toast('Move failed: ' + (d.detail || r.status), 'error'); }
+}
+
+// ── rename collection (Phase 7.P5) ────────────────────────────────────────────
+function toggleRenameCol() {
+  const cur = col();
+  if (!cur) { toast('Select a collection to rename first', 'error'); return; }
+  const row = $('rename-col-row');
+  const showing = row.style.display !== 'none';
+  row.style.display = showing ? 'none' : '';
+  if (!showing) $('rename-col-input').value = cur;
+}
+async function renameCollection() {
+  const cur = col();
+  const newName = $('rename-col-input').value.trim();
+  if (!cur || !newName || newName === cur) return;
+  if (!confirm('Rename collection "' + cur + '" to "' + newName + '"?\nThis moves all its documents and vectors.')) return;
+  const r = await fetch('/collections/' + encodeURIComponent(cur) + '/rename', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({new_name: newName})
+  });
+  if (r.ok) {
+    toast('Renamed to "' + newName + '"', 'success');
+    $('rename-col-row').style.display = 'none';
+    await loadCollections();
+    $('col-sel').value = newName;
+    loadDocs();
+  } else {
+    const d = await r.json().catch(()=>({}));
+    toast('Rename failed: ' + (d.detail || r.status), 'error');
+  }
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeMove(); } });
 
 // ── file upload ───────────────────────────────────────────────────────────────
 const dz = $('dz');
@@ -504,7 +615,16 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTML
+    if AUTH_ENABLED:
+        badge = "Internal tool &middot; Basic Auth &middot; LAN only"
+        note = ("&#128274; <strong>Basic Auth enabled.</strong> Access requires the admin credentials. "
+                "Keep network access LAN-scoped as well. See <code>docs/ENHANCEMENT-PLAN.md</code>.")
+    else:
+        badge = "Internal tool &middot; no auth &middot; LAN only"
+        note = ("&#9888; <strong>No authentication.</strong> This page is accessible to anyone on the LAN. "
+                "Enable HTTP Basic Auth by setting <code>ADMIN_USER</code> / <code>ADMIN_PASSWORD</code>. "
+                "See <code>docs/ENHANCEMENT-PLAN.md</code>.")
+    return HTML.replace("<!--AUTH_BADGE-->", badge).replace("<!--AUTH_NOTE-->", note)
 
 
 @app.get("/collections")
@@ -522,6 +642,14 @@ async def create_collection(request: Request):
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
+@app.post("/collections/{name}/rename")
+async def rename_collection(name: str, request: Request):
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        r = await client.post(f"{INGESTION_URL}/collections/{quote(name, safe='')}/rename", json=body)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+
+
 @app.get("/documents")
 async def get_documents(request: Request):
     params = dict(request.query_params)
@@ -534,6 +662,14 @@ async def get_documents(request: Request):
 async def delete_document(doc_id: str):
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.delete(f"{INGESTION_URL}/documents/{doc_id}")
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+
+
+@app.post("/documents/{doc_id}/move")
+async def move_document(doc_id: str, request: Request):
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/move", json=body)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 

@@ -406,6 +406,8 @@ The defaults in this repo are designed for getting started quickly. Before putti
 
 Open-WebUI ships with `auth.enabled: true` by default. The first user to register becomes the admin. Subsequent users require admin approval. Do not disable auth on any network where the NodePort is reachable by untrusted devices.
 
+The **RAG Admin UI** (port 8005 / NodePort 30085) is unauthenticated by default. To require a login on every page and write/delete action, set `ADMIN_USER` and `ADMIN_PASSWORD` — in `.env` for Docker Compose, or as the `rag-admin-auth` secret with `auth.enabled: true` in the chart. The `/health` probe stays open. This gates the UI; keep network access LAN-scoped regardless.
+
 ### Network isolation (NetworkPolicies)
 
 By default, every pod can reach every other pod in the cluster. For a business deployment, lock down inter-service traffic to only the paths that are needed:

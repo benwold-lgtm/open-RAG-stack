@@ -213,14 +213,16 @@ services:
     networks: [rag-net]
 
   # ── RAG admin UI ─────────────────────────────────────────────────────────────
-  # Internal-only admin page — no authentication. Control access at the network
-  # level (firewall / VLAN). Access at http://<host-ip>:8005
-  # Future: contributor roles, ingestion audit log (see docs/ENHANCEMENT-PLAN.md).
+  # Internal admin page. Optional HTTP Basic Auth: set ADMIN_USER + ADMIN_PASSWORD
+  # (e.g. in .env) to require a login; leave them blank for no auth (default).
+  # Either way, keep network access LAN-scoped (firewall / VLAN). http://<host-ip>:8005
   rag-admin:
     image: ghcr.io/benwold-lgtm/open-rag-admin:latest
     restart: unless-stopped
     environment:
       INGESTION_URL: http://ingestion:8002
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     ports:
       - "8005:8005"
     depends_on:
