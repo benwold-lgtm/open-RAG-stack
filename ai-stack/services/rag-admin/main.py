@@ -90,6 +90,13 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
 .modal .meta{font-size:.8rem;color:#475569;line-height:1.7;margin-bottom:.5rem}
 .modal .meta b{color:#1e293b}
 .modal pre{background:#0f172a;color:#fca5a5;padding:.8rem;border-radius:6px;font-size:.74rem;white-space:pre-wrap;word-break:break-word;margin:.5rem 0 1rem;font-family:ui-monospace,monospace}
+/* inline field help (Phase 7.7 — deep-crawl guidance) */
+.help{font-size:.72rem;color:#94a3b8;line-height:1.5;margin-top:.3rem}
+.help b{color:#475569;font-weight:600}
+.help code{background:#f1f5f9;color:#475569;padding:.05rem .3rem;border-radius:4px;font-size:.95em}
+.help a{color:#2563eb;text-decoration:none}
+.help a:hover{text-decoration:underline}
+.help-intro{font-size:.76rem;color:#64748b;line-height:1.6;margin-bottom:.8rem}
 </style>
 </head>
 <body>
@@ -144,21 +151,26 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
       <details>
         <summary>&#128376; Deep crawl options</summary>
         <div class="inner">
+          <p class="help-intro">Turn one starting URL into many documents: the crawler follows the links on that page (and the pages they lead to) and ingests each one &mdash; ideal for pulling in a whole documentation site or product section at once. Start with the defaults and widen if you need more.</p>
           <div style="display:flex;gap:.5rem">
             <div class="field" style="flex:1">
               <label>Max depth</label>
               <input type="number" id="depth" value="2" min="1" max="5">
+              <p class="help">How many link-hops to follow. <b>1</b> = only pages linked directly from your URL; <b>2</b> = those plus the pages they link to. Higher = broader but slower (1&ndash;5).</p>
             </div>
             <div class="field" style="flex:1">
               <label>Max pages</label>
               <input type="number" id="pages" value="30" min="1" max="200">
+              <p class="help">A hard cap on the total pages fetched, so a crawl can&rsquo;t run away on a large site (1&ndash;200).</p>
             </div>
           </div>
           <div class="field">
             <label>URL pattern filter (optional)</label>
-            <input type="text" id="pattern" placeholder="e.g. /docs/.*">
+            <input type="text" id="pattern" placeholder="e.g. */docs/*">
+            <p class="help">Only crawl links matching this wildcard (<code>*</code> = any characters). Example: <code>*/docs/*</code> follows <code>&hellip;/docs/install</code> but skips <code>&hellip;/blog/&hellip;</code> and <code>&hellip;/pricing</code>. Leave blank to follow every link, within the limits above.</p>
           </div>
           <button class="btn btn-ghost" style="width:100%" onclick="deepCrawl()">Start deep crawl from URL above</button>
+          <p class="help" style="text-align:center;margin-top:.5rem">&#128214; Full guide &amp; examples: <a href="https://github.com/benwold-lgtm/open-RAG-stack#deep-crawl-explained" target="_blank" rel="noopener">README &rarr; Deep crawl explained</a></p>
         </div>
       </details>
 

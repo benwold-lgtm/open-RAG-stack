@@ -312,8 +312,9 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 | 7.P4 | Move document to another collection | ☐ Planned | New ingestion `POST /documents/{id}/move`: scroll points by `doc_id` (with_vectors) → ensure target exists → upsert → delete from source → update SQLite + FTS5 `collection`. No re-embed. + UI control. **Next branch.** |
 | 7.P5 | Rename collection | ☐ Planned | New ingestion `POST /collections/{name}/rename`: bulk-applies the P4 migration across all docs in the collection, then drops the old empty collection. O(points) — surface a warning for large collections. **Next branch.** |
 | 7.P6 | Basic Auth (single admin cred) | ☐ Planned | `rag-admin` middleware reading `ADMIN_USER`/`ADMIN_PASSWORD` (default-off when unset); gates `/` and all proxied write/delete routes. Chart secret wiring already shipped in P1. Optionally surface `access_roles`/`classification` (**finding #2**) once there's an identity to attach them to. |
+| 7.7 | Deep-crawl UX: in-UI help + user docs | ✅ Done | Plain-language guidance for *Add Content → Deep crawl options* in the admin UI — Max depth / Max pages / URL pattern filter, each with an inline explanation and a concrete wildcard example (`*/docs/*`); fixed the misleading regex-style placeholder. Added a **"Deep crawl explained"** section to the README (behaviour, a worked filter-example table, first-time-user tips), linked from the UI. Goal: showcase the crawl capability and lower the barrier for inexperienced self-hosters. Rolled into the P4–P6 batch. |
 
-**Branch plan:** P1+P2+P3 shipped together (`feat/rag-admin-ux-p1-p3`) — chart + frontend wins, independent of the backend migration work. P4→P5 as a second branch (new ingestion endpoints, reviewed on their own). P6 lands with/after the chart.
+**Branch plan:** P1+P2+P3 shipped together (`feat/rag-admin-ux-p1-p3`) — chart + frontend wins, independent of the backend migration work. Batch 2 (`feat/rag-admin-p4-p6`): the deep-crawl UX docs (7.7) plus the P4→P5 ingestion endpoints and P6 auth. P6 reuses the chart secret wiring already shipped in P1.
 
 ---
 

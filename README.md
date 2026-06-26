@@ -271,6 +271,31 @@ Documents are grouped into **collections** and tagged with a **vendor**. The age
 ./scripts/link-scrape.sh https://docs.example.com --deep
 ```
 
+#### Deep crawl explained
+
+Deep crawl turns **one starting URL into many documents**. Beginning at the page you give it, the crawler follows the links on that page — and the links on *those* pages — ingesting each one. It's the fastest way to pull an entire documentation site, knowledge base, or product section into a collection in a single step. You stay in control with three settings:
+
+| Setting | What it does | Guidance |
+|---|---|---|
+| **Max depth** | How many link-hops to follow from the starting page. Depth `1` ingests only pages linked **directly** from your URL; depth `2` also follows the links on those pages; and so on. | Higher depth = broader coverage, but slower and more likely to pull in unrelated pages. Start at `2`. Range 1–5. |
+| **Max pages** | A hard cap on the **total** number of pages fetched, regardless of depth — a safety brake so a crawl of a large site can't balloon. | Set it a little above what you expect to need. Start at `30`. Range 1–200. |
+| **URL pattern filter** *(optional)* | Restricts the crawl to URLs matching a wildcard pattern, so you ingest only the relevant part of a site. `*` matches any characters. | Leave blank to follow every link (within the depth/page limits). See the examples below. |
+
+**URL pattern filter — examples.** Suppose you start at `https://example.com/docs/intro` and want only the documentation, not the blog or marketing pages:
+
+| Pattern | Crawls | Skips |
+|---|---|---|
+| `*/docs/*` | `…/docs/install`, `…/docs/api/auth` | `…/blog/news`, `…/pricing` |
+| `*example.com*` | any page on the `example.com` site | links that lead off to other domains |
+| *(blank)* | every linked page, any URL | nothing — bounded only by depth & max pages |
+
+**Tips for first-time users**
+- **Start small.** The defaults (`2` / `30`, with a tight pattern) are deliberately conservative. It's faster to re-run a crawl wider than to clean up an over-broad one.
+- **Use the filter to stay on-topic.** A pattern keeps the crawl from wandering into login pages, changelog archives, or other domains — which keeps your collection focused and your search results relevant.
+- **Each page is its own document.** Crawled pages appear individually in the admin UI's document list, so you can spot and delete any strays afterward.
+
+> Also available in the **RAG Admin UI** (`:30085`, or `:8005` under Docker Compose) at *Add Content → Deep crawl options*, where each field shows this guidance inline.
+
 ### 2. Scrape many URLs at once (batch)
 
 POST a list of URLs to `/ingest/batch`. Each entry sets its own collection and vendor, so one call can populate multiple collections:
