@@ -30,7 +30,7 @@ RELEASES=(
   "vllm-server:ai-stack"
   "ingestion:ingestion"
   "ai-agent:ai-agent"
-  "open-webui:open-webui"
+  "chat-ui:chat-ui"
 )
 
 echo

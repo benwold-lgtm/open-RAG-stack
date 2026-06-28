@@ -41,7 +41,7 @@ else
   warn "  Install: https://github.com/NVIDIA/k8s-device-plugin"
 fi
 
-# ── Storage: local-path-provisioner (all PVCs — Qdrant, ingestion, open-webui, vLLM) ──
+# ── Storage: local-path-provisioner (all PVCs — Qdrant, ingestion, chat-ui, vLLM) ──
 if kubectl get storageclass local-path &>/dev/null; then
   warn "StorageClass 'local-path' already exists — skipping"
 else
@@ -54,7 +54,7 @@ fi
 # Namespaces and secrets must exist before `helm install` so pods can mount
 # their secrets on first start.
 info "Creating namespaces..."
-for ns in ai-agent qdrant ai-stack ingestion embedding open-webui; do
+for ns in ai-agent qdrant ai-stack ingestion embedding chat-ui; do
   kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
 done
 ok "Namespaces ready"
@@ -111,6 +111,17 @@ else
   ok "Created secret 'qdrant-secrets' in namespace qdrant"
 fi
 
+if kubectl get secret chat-ui-secrets -n chat-ui &>/dev/null; then
+  warn "Secret 'chat-ui-secrets' already exists — skipping"
+else
+  # SESSION_SECRET signs the chat-ui login cookies. Auto-generated (not prompted) — it just
+  # needs to stay stable across restarts. If you enable OIDC SSO or a break-glass admin, add
+  # OIDC_CLIENT_SECRET / BREAK_GLASS_ADMIN_PASSWORD keys to this secret (see the chat-ui chart).
+  kubectl create secret generic chat-ui-secrets -n chat-ui \
+    --from-literal=SESSION_SECRET="$(openssl rand -hex 32)"
+  ok "Created secret 'chat-ui-secrets' in namespace chat-ui (SESSION_SECRET auto-generated)"
+fi
+
 if kubectl get secret hf-token-secret -n ai-stack &>/dev/null; then
   warn "Secret 'hf-token-secret' already exists — skipping"
 else
@@ -164,7 +175,7 @@ echo "  Re-deploy after editing a chart or values.yaml:"
 echo "    ./deploy/install.sh"
 echo
 echo "  Service endpoints (available once pods reach Running):"
-echo "    Open-WebUI   →  http://${NODE_IP}:30080"
+echo "    Chat UI      →  http://${NODE_IP}:30086"
 echo "    vLLM API     →  http://${NODE_IP}:30000/v1"
 echo "    ai-agent     →  http://${NODE_IP}:30081"
 echo "    embedding    →  http://${NODE_IP}:30082"

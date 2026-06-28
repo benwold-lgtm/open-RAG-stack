@@ -4,7 +4,7 @@
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)
 ![Kubernetes 1.24+](https://img.shields.io/badge/Kubernetes-1.24%2B-blue)
 
-A self-hosted Retrieval-Augmented Generation (RAG) stack running on Kubernetes. Ingest your own documents, query them through a custom AI agent backed by a local LLM, and chat through Open-WebUI — entirely air-gapped if needed.
+A self-hosted Retrieval-Augmented Generation (RAG) stack running on Kubernetes. Ingest your own documents, query them through a custom AI agent backed by a local LLM, and chat through a built-in multi-user chat UI — entirely air-gapped if needed.
 
 ## Why this stack?
 
@@ -21,7 +21,7 @@ Cloud AI APIs bill per token and per seat. A small team using document search an
 | LLM inference | OpenAI GPT-4o | ~$5–$15/1M tokens | Local vLLM — $0/token after hardware |
 | Vector database | Pinecone Starter | ~$70/month | Qdrant self-hosted — free |
 | Document ingestion | Azure AI Document Intelligence | ~$0.01/page | Self-hosted — free |
-| Chat UI | ChatGPT Team | ~$25/user/month | Open-WebUI self-hosted — free |
+| Chat UI | ChatGPT Team | ~$25/user/month | Built-in chat UI — free, no per-seat license |
 | Data privacy | Hosted APIs process your data on vendor infrastructure | Compliance risk | Air-gapped — your data never leaves |
 
 **Hardware cost:** a single used RTX 3090 (24 GB VRAM) runs 7B–14B parameter models comfortably and is typically available for $600–$900. At $200–$500/month in avoided API costs, it pays for itself in a few months — and the inference cost per query is effectively zero thereafter.
@@ -50,14 +50,14 @@ See [Quick start](#quick-start) below for the full, step-by-step version (model 
 
 ```
 Query & response path
-  User → Open-WebUI (:30080) → ai-agent (:30081)
+  User → chat-ui (:30086) → ai-agent (:30081)
   ai-agent runs hybrid retrieval:
     • embed query         → embedding service   (:30082, nomic-embed-text-v1.5)
     • vector search       → Qdrant              (:30333)
     • lexical search BM25 → ingestion SQLite FTS5 (:30083)
     • fuse (RRF) + rerank → reranker            (:30084, bge-reranker-v2-m3) → top-5
     • generate answer     → vLLM                (:30000, local LLM)
-  ai-agent → Open-WebUI: answer + sources + verified citations
+  ai-agent → chat-ui: answer + sources + verified citations
   optional: web_search   → SearXNG             (:8080, off by default)
 
 Ingestion pipeline
@@ -75,14 +75,14 @@ layout differs (GPU sharing, host ports vs NodePorts). See the diagram's
 
 ### Request flow
 
-1. User sends a message in **Open-WebUI**
-2. Open-WebUI forwards it to **ai-agent** via the OpenAI-compatible `/v1/chat/completions` endpoint
+1. User sends a message in the **chat UI**
+2. chat-ui forwards it to **ai-agent** via the OpenAI-compatible `/v1/chat/completions` endpoint
 3. ai-agent decides which tool to call:
    - `rag_search` — hybrid retrieval: embeds the query and runs vector search (Qdrant) + lexical BM25 search (SQLite FTS5) across all collections, fuses the two with RRF into a top-20 pool, then reranks via cross-encoder to top-5 (optional query rewriting is off by default — see `docs/ENHANCEMENT-PLAN.md`)
    - `web_search` — calls your configured web search provider (Brave, SearXNG, Serper, or Tavily)
 4. Tool results are injected back into the LLM context
 5. **vllm-server** generates the final response
-6. ai-agent returns the answer plus a `sources` list to Open-WebUI
+6. ai-agent returns the answer plus a `sources` list to chat-ui, which streams it to the browser with inline page-level citations
 
 ### Ingestion flow
 
@@ -99,7 +99,7 @@ Use `scripts/link-scrape.sh` to ingest a URL, or POST directly to the ingestion 
 
 | Service | Image | Port | Description |
 |---|---|---|---|
-| `open-webui` | `ghcr.io/open-webui/open-webui` | 30080 | Chat UI |
+| `chat-ui` | `ghcr.io/benwold-lgtm/open-rag-chat-ui` | 30086 | Chat UI — local + OIDC sign-in, per-user conversations, streaming answers with citations |
 | `ai-agent` | `ghcr.io/benwold-lgtm/open-rag-ai-agent` | 30081 | RAG agent — calls vLLM + Qdrant |
 | `embedding` | `ghcr.io/benwold-lgtm/open-rag-embedding` | 30082 | Embedding service (nomic-embed-text-v1.5) |
 | `ingestion` | `ghcr.io/benwold-lgtm/open-rag-ingestion` | 30083 | Document ingestion pipeline |
@@ -128,10 +128,10 @@ These are the defaults baked into the charts — tune them in each `values.yaml`
 | embedding | optional (uses GPU if present, else CPU) | 2 / 8 | 4 Gi / 24 Gi | — |
 | qdrant | — | 0.25 / 1 | 0.5 Gi / 2 Gi | 50 Gi local-path |
 | ingestion | — | 0.5 / 2 | 1 Gi / 6 Gi | 5 Gi local-path |
-| open-webui | — | — | — | 5 Gi local-path |
+| chat-ui | — | 0.1 / 1 | 128 Mi / 512 Mi | 2 Gi local-path |
 | ai-agent | — | 0.25 / 0.5 | 0.25 Gi / 0.5 Gi | — |
 
-In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM**, and ~**560 Gi free local disk** runs the whole AI stack. All persistent storage uses the `local-path` provisioner — no NFS or external storage required. The control-plane/worker VMs that host Qdrant, ingestion, and Open-WebUI are lightweight by comparison.
+In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM**, and ~**560 Gi free local disk** runs the whole AI stack. All persistent storage uses the `local-path` provisioner — no NFS or external storage required. The control-plane/worker VMs that host Qdrant, ingestion, and the chat UI are lightweight by comparison.
 
 ---
 
@@ -174,7 +174,7 @@ nodeSelector:
   kubernetes.io/hostname: your-gpu-node
 ```
 
-Repeat `nodeSelector` for `embedding`, `ingestion`, `qdrant`, and `open-webui` charts.
+Repeat `nodeSelector` for `embedding`, `ingestion`, `qdrant`, and `chat-ui` charts.
 
 ### 2. Configure web search (optional)
 
@@ -232,7 +232,7 @@ Once pods are `Running` (`kubectl get pods -A`), confirm each service responds. 
 ```bash
 export NODE_IP=<your-gpu-node-ip>
 
-curl -s -o /dev/null -w "open-webui  %{http_code}\n"  http://$NODE_IP:30080
+curl -s -o /dev/null -w "chat-ui     %{http_code}\n"  http://$NODE_IP:30086
 curl -s -o /dev/null -w "vllm        %{http_code}\n"  http://$NODE_IP:30000/health
 curl -s -o /dev/null -w "embedding   %{http_code}\n"  http://$NODE_IP:30082/health
 curl -s -o /dev/null -w "ingestion   %{http_code}\n"  http://$NODE_IP:30083/health
@@ -336,7 +336,7 @@ The ingestion service is a FastAPI app, so it serves a browser-based Swagger UI 
 http://<your-gpu-node-ip>:30083/docs
 ```
 
-From there you can fill in and POST to `/ingest/url`, `/ingest/batch`, `/ingest/deep`, and `/ingest/document` without writing curl by hand. (Open-WebUI is the chat front-end for *querying* — it does not handle ingestion.)
+From there you can fill in and POST to `/ingest/url`, `/ingest/batch`, `/ingest/deep`, and `/ingest/document` without writing curl by hand. (The chat UI is the front-end for *querying* — it does not handle ingestion.)
 
 ### Check status and query
 
@@ -358,13 +358,17 @@ open-RAG-stack/
 ├── ai-stack/
 │   ├── charts/               # Helm charts — one per service
 │   │   ├── ai-agent/
+│   │   ├── chat-ui/
 │   │   ├── embedding/
 │   │   ├── ingestion/
-│   │   ├── open-webui/
+│   │   ├── open-webui/       # deprecated — replaced by chat-ui
 │   │   ├── qdrant/
 │   │   └── vllm-server/
+│   ├── lib/
+│   │   └── rag_auth/         # shared auth module (scopes, sessions, OIDC) — bundled into chat-ui
 │   └── services/             # Python microservice source
 │       ├── ai-agent/         # RAG agent (FastAPI)
+│       ├── chat-ui/          # Chat UI — FastAPI API + vanilla-JS SPA
 │       ├── embedding/        # Embedding service (FastAPI)
 │       └── ingestion/        # Ingestion pipeline (FastAPI)
 ├── deploy/                   # install.sh — Helm deploy/upgrade for all services
@@ -404,7 +408,7 @@ The defaults in this repo are designed for getting started quickly. Before putti
 
 ### Authentication
 
-Open-WebUI ships with `auth.enabled: true` by default. The first user to register becomes the admin. Subsequent users require admin approval. Do not disable auth on any network where the NodePort is reachable by untrusted devices.
+The **chat UI** authenticates every request. The first account to register becomes the admin; subsequent local accounts stay pending until an admin approves them. It also supports **OIDC single sign-on** (Entra, Okta, Google, Keycloak — configure via the chart `oidc.*` values or the `.env` OIDC block) and a **break-glass** recovery admin independent of the user table and the IdP. In production (`ENVIRONMENT=production`) it **fails closed** — it refuses to boot without a `SESSION_SECRET` and at least one auth method. On any untrusted network, set a strong `SESSION_SECRET`, serve over TLS, and set `cookieSecure: true`.
 
 The **RAG Admin UI** (port 8005 / NodePort 30085) is unauthenticated by default. To require a login on every page and write/delete action, set `ADMIN_USER` and `ADMIN_PASSWORD` — in `.env` for Docker Compose, or as the `rag-admin-auth` secret with `auth.enabled: true` in the chart. The `/health` probe stays open. This gates the UI; keep network access LAN-scoped regardless.
 
@@ -446,7 +450,7 @@ spec:
 EOF
 ```
 
-Repeat the `default-deny-ingress` pattern for all namespaces (`ai-agent`, `embedding`, `ingestion`, `ai-stack`, `open-webui`), then add explicit `allow-from-*` policies for each required connection. Refer to the [Architecture](#architecture) diagram for the exact call paths.
+Repeat the `default-deny-ingress` pattern for all namespaces (`ai-agent`, `embedding`, `ingestion`, `ai-stack`, `chat-ui`), then add explicit `allow-from-*` policies for each required connection. Refer to the [Architecture](#architecture) diagram for the exact call paths.
 
 ### Pod security
 
@@ -492,10 +496,11 @@ The bootstrap script creates plain Kubernetes Secrets (base64-encoded, not encry
 - Confirm `qdrant-secrets` exists in the `qdrant` namespace: `kubectl get secret qdrant-secrets -n qdrant`
 - If missing, run bootstrap.sh again — it skips existing secrets so re-running is safe.
 
-**Open-WebUI shows no models**
+**Chat UI answers fail or hang**
 - Confirm ai-agent is running: `kubectl get pods -n ai-agent`
-- Check the `vllm.baseUrl` in `open-webui/values.yaml` points to ai-agent's cluster DNS, not directly to vLLM.
-- Open-WebUI requires login by default (`auth.enabled: true`). The first user to register becomes admin; subsequent users require admin approval.
+- Check `aiAgent.url` in `chat-ui/values.yaml` (or `AI_AGENT_URL` in Compose) points to ai-agent's cluster DNS / service name, not directly to vLLM.
+- If logins don't stick, you're likely on plain HTTP with `cookieSecure: true` — set it to `false` for bare NodePort/LAN access, or put the UI behind TLS.
+- In production the pod refuses to boot without a `SESSION_SECRET`; check the `chat-ui-secrets` secret exists in the `chat-ui` namespace.
 
 ### Common gotchas
 

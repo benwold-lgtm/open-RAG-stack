@@ -10,7 +10,7 @@ ok()   { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 
 # Explicit namespace list — intentionally scoped to avoid touching other workloads
-RAG_NAMESPACES=(ai-stack ai-agent embedding ingestion open-webui qdrant)
+RAG_NAMESPACES=(ai-stack ai-agent embedding ingestion chat-ui qdrant)
 
 echo
 echo "╔═══════════════════════════════════════════╗"
@@ -35,7 +35,7 @@ echo "────────────────────────�
 ok "RAG lab suspended. GPU and RAM are now free."
 echo
 echo "  Verify all RAG pods are stopped:"
-echo "    kubectl get pods -n ai-stack -n ai-agent -n embedding -n ingestion -n open-webui -n qdrant"
+echo "    kubectl get pods -n ai-stack -n ai-agent -n embedding -n ingestion -n chat-ui -n qdrant"
 echo
 echo "  Bring the RAG lab back up:"
 echo "    ./scripts/RAG-startup.sh"

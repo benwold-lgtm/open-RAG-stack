@@ -11,7 +11,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 
 NODE_IP="${NODE_IP:-<your-gpu-node-ip>}"
 
-RAG_NAMESPACES=(ai-stack ai-agent embedding ingestion open-webui qdrant)
+RAG_NAMESPACES=(ai-stack ai-agent embedding ingestion chat-ui qdrant)
 
 echo
 echo "╔═══════════════════════════════════════════╗"
@@ -39,7 +39,7 @@ echo "  Watch pods come up:"
 echo "    kubectl get pods -A -w"
 echo
 echo "  Service endpoints (once pods reach Running):"
-echo "    Open-WebUI   →  http://${NODE_IP}:30080"
+echo "    Chat UI      →  http://${NODE_IP}:30086"
 echo "    vLLM API     →  http://${NODE_IP}:30000/v1"
 echo "    ai-agent     →  http://${NODE_IP}:30081"
 echo "    Qdrant REST  →  http://${NODE_IP}:30333"

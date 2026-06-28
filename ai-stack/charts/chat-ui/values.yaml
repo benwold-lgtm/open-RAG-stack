@@ -1,0 +1,74 @@
+image:
+  repository: ghcr.io/benwold-lgtm/open-rag-chat-ui
+  tag: latest  # built by CI from this repo — pin to a specific tag for production
+  pullPolicy: Always
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+service:
+  type: NodePort
+  port: 8006
+  nodePort: 30086
+
+aiAgent:
+  url: "http://ai-agent.ai-agent.svc.cluster.local:8000/v1"
+
+# ── Branding (white-label) ────────────────────────────────────────────────────
+brand:
+  name: "Open RAG Chat"
+  primaryColor: "#2563eb"
+
+# ── Behaviour ─────────────────────────────────────────────────────────────────
+config:
+  production: true        # fail-closed boot: refuses to start without auth + SESSION_SECRET
+  localLogin: true        # local username/password accounts (first user bootstraps the admin)
+  registration: true      # allow self-service registration
+  requireApproval: true   # new local accounts stay pending until an admin approves them
+  # Mark session cookies Secure. MUST be false when served over plain HTTP (e.g. a bare
+  # NodePort without TLS), or the browser drops the cookie and logins won't stick. Set true
+  # behind a TLS ingress.
+  cookieSecure: false
+
+# Pre-create this secret before installing (SESSION_SECRET is required in production):
+#   kubectl create secret generic chat-ui-secrets -n chat-ui \
+#     --from-literal=SESSION_SECRET=$(openssl rand -hex 32)
+# Add OIDC_CLIENT_SECRET and/or BREAK_GLASS_ADMIN_PASSWORD keys if you enable those features.
+secretName: chat-ui-secrets
+
+# ── OIDC SSO (optional) ───────────────────────────────────────────────────────
+# Federated login. The client secret is read from `secretName` (key OIDC_CLIENT_SECRET).
+oidc:
+  enabled: false
+  issuer: ""             # e.g. https://login.microsoftonline.com/<tenant-id>/v2.0
+  clientId: ""
+  scopes: "openid profile email groups"
+  groupsClaim: "groups"
+  groupRoles: ""         # IdP group → role map, e.g. "rag-admins:admin,rag-users:user"
+  defaultRole: "user"    # role for an authenticated user matching no group ("" = deny access)
+  redirectUri: ""        # public callback URL, e.g. https://chat.example.com/api/auth/oidc/callback
+
+# ── Break-glass admin (optional) ──────────────────────────────────────────────
+# A recovery admin independent of the user table and the IdP. Password is read from
+# `secretName` (key BREAK_GLASS_ADMIN_PASSWORD).
+breakGlass:
+  enabled: false
+  username: "breakglass"
+
+# ── Persistence ───────────────────────────────────────────────────────────────
+# Users, conversations, messages and sessions live in SQLite at /data.
+storage:
+  size: 2Gi
+  storageClassName: "local-path"
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "1000m"
+
+# CPU-only service — runs on any worker. Pin only if you want it co-located.
+nodeSelector:
+  kubernetes.io/hostname: <your-node-name>
