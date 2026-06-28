@@ -1,9 +1,10 @@
 # Chat UI — Design Spec (Open-WebUI Replacement)
 
-**Status:** Draft for review (spec-first; no code yet)
+**Status:** Approved to build. Sequenced build plan in [`AUTH-AND-CHATUI-PLAN.md`](AUTH-AND-CHATUI-PLAN.md).
 **Last Updated:** 2026-06-28
 **Decision:** Build a first-party, multi-user chat UI to replace Open-WebUI.
-**Auth model (refined 2026-06-28):** OIDC SSO (Entra/Okta/Google/Keycloak) **+ local-user fallback**. See §5.
+**Auth model (refined 2026-06-28):** OIDC SSO (Entra/Okta/Google/Keycloak) **+ local-user fallback**,
+delivered as a shared `rag_auth` module (scopes + composite auth + break-glass). See §5.
 
 ---
 
@@ -104,6 +105,20 @@ Notes:
 ---
 
 ## 5. Authentication (the largest piece)
+
+> **Build approach:** auth is a **shared, reusable module** (`rag_auth`) built and offline-
+> tested first, then consumed by `chat-ui` (and later `rag-admin` / `ai-agent`). The sequenced,
+> PR-sized plan, the scope model, and the reconciliation with the 3-tier blueprint live in
+> [`AUTH-AND-CHATUI-PLAN.md`](AUTH-AND-CHATUI-PLAN.md). This section captures the *what*; that
+> doc captures the *how/when*.
+>
+> **Authorize on scopes, never role strings.** A request resolves to a
+> `Principal{subject, scopes, auth_method}`; every route guards on one scope, and roles are
+> named bundles of scopes in a single table. The composite authenticator tries **OIDC → local
+> → 401**, with an env-configured **break-glass admin** that works even when both OIDC *and* the
+> user DB are down. The UI gates affordances on scopes via `/auth/me`. `chat-ui` collapses the
+> blueprint's Tier-1 (authorization point) and Tier-2 (BFF) into one service since it owns the
+> resources it protects; `ai-agent` stays behind the trust boundary (no token relay).
 
 **Design principle (project guidance): solve for ~90% of real deployments — two layers, not
 five.**
