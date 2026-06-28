@@ -1019,6 +1019,29 @@ def _derive_title(text: str) -> str:
     return " ".join(text.split())[:60] or "New conversation"
 
 
+# ai-agent appends these blocks to its answers (see ai-agent format_citations / format_sources).
+# They're rendering output — URLs, page refs, image links, verbatim quotes — so we keep them in
+# the stored/displayed message but strip them out of the history we re-feed the model as input.
+_CITATION_MARKERS = ("\n\n**Verified quotes:**", "\n\n---\n**Sources:**")
+
+
+def _strip_citation_trailer(content: str) -> str:
+    cut = len(content)
+    for marker in _CITATION_MARKERS:
+        idx = content.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    return content[:cut].rstrip()
+
+
+def _history_for_agent(conv_id: int) -> list[dict]:
+    out = []
+    for m in list_messages(conv_id):
+        text = _strip_citation_trailer(m["content"]) if m["role"] == "assistant" else m["content"]
+        out.append({"role": m["role"], "content": text})
+    return out
+
+
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
 
@@ -1036,7 +1059,7 @@ async def chat(request: Request, body: ChatBody):
     if not conv["title"]:  # name a fresh conversation after its first message
         rename_conversation(body.conversation_id, _derive_title(content))
 
-    history = [{"role": m["role"], "content": m["content"]} for m in list_messages(body.conversation_id)]
+    history = _history_for_agent(body.conversation_id)
     model = await resolve_model(body.model)
     try:
         agent_json = await _agent_chat(history, model)
