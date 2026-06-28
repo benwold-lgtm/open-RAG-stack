@@ -1,0 +1,5 @@
+# Python build / cache artifacts + local DB
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.db
