@@ -124,6 +124,11 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
 .help a{color:#2563eb;text-decoration:none}
 .help a:hover{text-decoration:underline}
 .help-intro{font-size:.76rem;color:#64748b;line-height:1.6;margin-bottom:.8rem}
+/* bulk selection + actions (Phase 7.8) */
+.bulk-bar{display:none;align-items:center;gap:.5rem;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:.45rem .7rem;margin-bottom:.6rem;font-size:.8rem;color:#334155}
+.bulk-bar b{color:#1d4ed8}
+th.cbcol,td.cbcol{width:30px;text-align:center;padding-left:.4rem;padding-right:.2rem}
+.cbcol input,#select-all{cursor:pointer;width:15px;height:15px;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -227,9 +232,17 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
       </select>
       <button class="btn btn-ghost btn-sm" onclick="loadDocs()">&#8635; Refresh</button>
     </div>
+    <div class="bulk-bar" id="bulk-bar">
+      <span id="bulk-count"><b>0</b> selected</span>
+      <div class="sp"></div>
+      <button class="btn btn-ghost btn-sm" onclick="showBulkMove()">&#8631; Move to&hellip;</button>
+      <button class="btn btn-danger btn-sm" onclick="bulkDelete()">&#x2715; Delete</button>
+      <button class="btn btn-ghost btn-sm" onclick="clearSelection()">Clear</button>
+    </div>
     <table>
       <thead>
         <tr>
+          <th class="cbcol"><input type="checkbox" id="select-all" title="Select all (filtered)"></th>
           <th class="sortable" onclick="sortBy('src')">Source<span class="arrow" data-k="src"></span></th>
           <th class="sortable" onclick="sortBy('collection')">Collection<span class="arrow" data-k="collection"></span></th>
           <th class="sortable" onclick="sortBy('vendor')">Vendor<span class="arrow" data-k="vendor"></span></th>
@@ -240,7 +253,7 @@ th .arrow{font-size:.7em;margin-left:.15rem;color:#2563eb}
         </tr>
       </thead>
       <tbody id="docs-body">
-        <tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem">Loading&hellip;</td></tr>
+        <tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem">Loading&hellip;</td></tr>
       </tbody>
     </table>
   </div>
@@ -335,11 +348,30 @@ const STATUS_LABEL = {completed:'done', failed:'error', unchanged:'unchanged'};
 
 function srcOf(d) { return d.url || d.id || ''; }
 
+// ── selection / bulk actions (Phase 7.8) ──────────────────────────────────────
+let selected = new Set();   // doc ids checked (persists across sort/filter/refresh)
+let lastIds = [];           // ids currently rendered (post-filter), for select-all
+let bulkBusy = false;       // pause auto-refresh while a bulk op runs
+
+function updateBulkBar() {
+  const n = selected.size;
+  $('bulk-bar').style.display = n ? 'flex' : 'none';
+  $('bulk-count').innerHTML = '<b>' + n + '</b> selected';
+  const sa = $('select-all');
+  const vis = lastIds.filter(id => selected.has(id)).length;
+  sa.checked = lastIds.length > 0 && vis === lastIds.length;
+  sa.indeterminate = vis > 0 && vis < lastIds.length;
+}
+function clearSelection() { selected.clear(); renderDocs(); }
+
 async function loadDocs() {
+  if (bulkBusy) return;  // don't yank the table out from under a running bulk op
   const c = $('filter-col').value;
   const url = '/documents' + (c ? '?collection=' + encodeURIComponent(c) : '');
   const data = await fetch(url).then(r=>r.json()).catch(()=>({documents:[]}));
   docsCache = data.documents || [];
+  const ids = new Set(docsCache.map(d => d.id));
+  selected.forEach(id => { if (!ids.has(id)) selected.delete(id); });  // drop gone docs
   renderDocs();
   syncQueueBadges();
 }
@@ -376,9 +408,12 @@ function renderDocs() {
     s.textContent = (s.dataset.k === sortKey) ? (sortDir === 1 ? '▲' : '▼') : '';
   });
 
+  lastIds = rows.map(d => d.id);
+
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem">' +
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem">' +
       (docsCache.length ? 'No documents match the filter' : 'No documents yet') + '</td></tr>';
+    updateBulkBar();
     return;
   }
 
@@ -392,6 +427,7 @@ function renderDocs() {
     const badge = '<span class="sb s-' + esc(d.status) + (isErr ? ' clickable" data-err="' + esc(d.id) : '') +
       '"' + (isErr ? ' title="Click for the failure reason"' : '') + '>' + esc(statusLabel) + '</span>';
     return '<tr>' +
+      '<td class="cbcol"><input type="checkbox" class="rowcb" data-id="' + esc(d.id) + '"' + (selected.has(d.id) ? ' checked' : '') + '></td>' +
       '<td class="src" title="' + esc(src) + '">' + esc(short) + '</td>' +
       '<td>' + esc(d.collection || '') + '</td>' +
       '<td>' + esc(d.vendor || '—') + '</td>' +
@@ -402,6 +438,7 @@ function renderDocs() {
       '<button class="btn btn-danger btn-sm" data-del="' + esc(d.id) + '">&#x2715;</button></td>' +
       '</tr>';
   }).join('');
+  updateBulkBar();
 }
 
 // delegated row actions — robust to ids (no inline-onclick string building)
@@ -412,6 +449,19 @@ $('docs-body').addEventListener('click', e => {
   if (mv) { showMove(mv.dataset.move); return; }
   const err = e.target.closest('[data-err]');
   if (err) { showError(err.dataset.err); }
+});
+
+// row checkbox + select-all (filtered) drive the selection set
+$('docs-body').addEventListener('change', e => {
+  const cb = e.target.closest('.rowcb');
+  if (!cb) return;
+  if (cb.checked) selected.add(cb.dataset.id); else selected.delete(cb.dataset.id);
+  updateBulkBar();
+});
+$('select-all').addEventListener('change', e => {
+  if (e.target.checked) lastIds.forEach(id => selected.add(id));
+  else lastIds.forEach(id => selected.delete(id));
+  renderDocs();
 });
 
 async function deleteDoc(id) {
@@ -451,15 +501,56 @@ function showMove(id) {
   $('move-bg').classList.add('show');
 }
 function closeMove() { $('move-bg').classList.remove('show'); moveDocId = null; }
-async function confirmMove() {
-  const target = $('move-target').value;
-  if (!moveDocId || !target) { toast('Pick a target collection', 'error'); return; }
-  const r = await fetch('/documents/' + encodeURIComponent(moveDocId) + '/move', {
+function moveOne(id, target) {
+  return fetch('/documents/' + encodeURIComponent(id) + '/move', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({target_collection: target})
   });
-  if (r.ok) { toast('Document moved to "' + target + '"', 'success'); closeMove(); loadDocs(); }
-  else { const d = await r.json().catch(()=>({})); toast('Move failed: ' + (d.detail || r.status), 'error'); }
+}
+async function confirmMove() {
+  const target = $('move-target').value;
+  if (!target) { toast('Pick a target collection', 'error'); return; }
+  const single = moveDocId;          // null => bulk mode (use the selection)
+  const ids = single ? [single] : [...selected];
+  closeMove();
+  if (single) {
+    const r = await moveOne(single, target);
+    if (r.ok) { toast('Document moved to "' + target + '"', 'success'); loadDocs(); }
+    else { const d = await r.json().catch(()=>({})); toast('Move failed: ' + (d.detail || r.status), 'error'); }
+  } else {
+    await runBulk(ids, id => moveOne(id, target), 'Moved to "' + target + '":');
+  }
+}
+
+// ── bulk actions over the current selection (Phase 7.8) ───────────────────────
+// Reuses the validated single-doc endpoints; iterates sequentially so the
+// server isn't hammered and partial failures are reported, not silent.
+async function runBulk(ids, fn, verb) {
+  if (!ids.length) return;
+  bulkBusy = true;
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try { (await fn(id)).ok ? ok++ : fail++; } catch { fail++; }
+  }
+  bulkBusy = false;
+  selected.clear();
+  toast(verb + ' ' + ok + ' of ' + ids.length + (fail ? ' (' + fail + ' failed)' : ''), fail ? 'error' : 'success');
+  loadDocs();
+}
+async function bulkDelete() {
+  const ids = [...selected];
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' document(s) and remove their vectors from Qdrant?')) return;
+  await runBulk(ids, id => fetch('/documents/' + encodeURIComponent(id), {method:'DELETE'}), 'Deleted');
+}
+function showBulkMove() {
+  if (!selected.size) return;
+  moveDocId = null;  // bulk mode
+  $('move-meta').innerHTML = '<div><b>' + selected.size + ' document(s)</b> selected</div>';
+  $('move-target').innerHTML = collectionsCache.length
+    ? collectionsCache.map(n => '<option value="'+esc(n)+'">'+esc(n)+'</option>').join('')
+    : '<option value="">(create a collection first)</option>';
+  $('move-bg').classList.add('show');
 }
 
 // ── rename collection (Phase 7.P5) ────────────────────────────────────────────
