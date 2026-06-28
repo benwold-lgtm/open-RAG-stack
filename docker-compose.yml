@@ -175,7 +175,7 @@ services:
 
   # ── RAG agent ─────────────────────────────────────────────────────────────────
   # Exposed on host port 8004 (vLLM owns 8000; ai-agent runs on 8000 internally).
-  # Open WebUI talks to this via http://ai-agent:8000/v1 (internal network name).
+  # chat-ui talks to this via http://ai-agent:8000/v1 (internal network name).
   ai-agent:
     image: ghcr.io/benwold-lgtm/open-rag-ai-agent:latest
     restart: unless-stopped
@@ -249,22 +249,54 @@ services:
       - "8080:8080"
     networks: [rag-net]
 
-  # ── UI ────────────────────────────────────────────────────────────────────────
-  # Access at http://<host-ip>:3001
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:v0.9.6
+  # ── Chat UI (first-party — replaces Open-WebUI) ───────────────────────────────
+  # Multi-user chat with local + OIDC sign-in, per-user conversations, and answers
+  # with page-level citations. Access at http://<host-ip>:3001
+  # Build context is the REPO ROOT so the image can bundle the shared rag_auth module.
+  chat-ui:
+    image: ghcr.io/benwold-lgtm/open-rag-chat-ui:latest
+    build:
+      context: .
+      dockerfile: ai-stack/services/chat-ui/Dockerfile
     restart: unless-stopped
     environment:
-      OPENAI_API_BASE_URL: http://ai-agent:8000/v1
-      OPENAI_API_KEY: not-needed
-      WEBUI_AUTH: "true"
+      CHAT_UI_DB: /data/chat_ui.db
+      AI_AGENT_URL: http://ai-agent:8000/v1
+      # development = relaxed boot for single-node testing. Set CHAT_ENV=production (and a
+      # SESSION_SECRET below) for any real / multi-user deployment — boot then fails closed.
+      ENVIRONMENT: ${CHAT_ENV:-development}
+      # Set a stable secret so sessions survive restarts (required when ENVIRONMENT=production).
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      # Plain HTTP on the LAN → cookies cannot be Secure. Set true only behind TLS.
+      COOKIE_SECURE: "false"
+      LOCAL_LOGIN_ENABLED: "true"
+      REGISTRATION_ENABLED: "true"
+      REQUIRE_APPROVAL: "true"
+      BRAND_NAME: ${BRAND_NAME:-Open RAG Chat}
+      BRAND_PRIMARY_COLOR: "${BRAND_PRIMARY_COLOR:-#2563eb}"
+      # ── OIDC SSO (optional) — set OIDC_ENABLED=true and fill these in .env ──
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_GROUP_ROLES: ${OIDC_GROUP_ROLES:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+      # ── Break-glass admin (optional) ──
+      BREAK_GLASS_ADMIN_USER: ${BREAK_GLASS_ADMIN_USER:-}
+      BREAK_GLASS_ADMIN_PASSWORD: ${BREAK_GLASS_ADMIN_PASSWORD:-}
     volumes:
-      - webui_data:/app/backend/data
+      - chat_ui_data:/data
     ports:
-      - "3001:8080"
+      - "3001:8006"
     depends_on:
       - ai-agent
     networks: [rag-net]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8006/health\")'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 networks:
   rag-net:
@@ -274,4 +306,4 @@ volumes:
   qdrant_data:
   ingestion_data:
   vllm_cache:
-  webui_data:
+  chat_ui_data:

@@ -36,9 +36,9 @@ image:
 #   repository: <YOUR_REGISTRY>/open-rag-ingestion
 #   pullPolicy: IfNotPresent
 
-# ── open-webui ────────────────────────────────────────────────────────────────
+# ── chat-ui ───────────────────────────────────────────────────────────────────
 # image:
-#   repository: <YOUR_REGISTRY>/open-webui
+#   repository: <YOUR_REGISTRY>/open-rag-chat-ui
 #   pullPolicy: IfNotPresent
 
 # ── qdrant ────────────────────────────────────────────────────────────────────

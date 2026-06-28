@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quick overview of all AI stack pods across namespaces.
-NAMESPACES=(ai-stack ai-agent embedding ingestion qdrant open-webui)
+NAMESPACES=(ai-stack ai-agent embedding ingestion qdrant chat-ui)
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"

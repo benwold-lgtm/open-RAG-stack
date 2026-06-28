@@ -1,0 +1,6 @@
+apiVersion: v2
+name: chat-ui
+description: First-party multi-user chat UI for the RAG stack (replaces Open-WebUI) — local + OIDC sign-in, per-user conversations, streaming answers with page-level citations
+type: application
+version: 0.1.0
+appVersion: "latest"

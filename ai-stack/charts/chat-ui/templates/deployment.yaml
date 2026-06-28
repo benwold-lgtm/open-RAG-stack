@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-ui
+  namespace: chat-ui
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      app: chat-ui
+  template:
+    metadata:
+      labels:
+        app: chat-ui
+    spec:
+      nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
+      securityContext:
+        fsGroup: 1000          # make the /data PVC writable by the non-root container user
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: chat-ui
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          ports:
+            - containerPort: 8006
+          env:
+            - name: CHAT_UI_DB
+              value: /data/chat_ui.db
+            - name: ENVIRONMENT
+              value: {{ if .Values.config.production }}"production"{{ else }}"development"{{ end }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: SESSION_SECRET
+            - name: COOKIE_SECURE
+              value: {{ .Values.config.cookieSecure | toString | quote }}
+            - name: LOCAL_LOGIN_ENABLED
+              value: {{ .Values.config.localLogin | toString | quote }}
+            - name: REGISTRATION_ENABLED
+              value: {{ .Values.config.registration | toString | quote }}
+            - name: REQUIRE_APPROVAL
+              value: {{ .Values.config.requireApproval | toString | quote }}
+            - name: AI_AGENT_URL
+              value: {{ .Values.aiAgent.url | quote }}
+            - name: BRAND_NAME
+              value: {{ .Values.brand.name | quote }}
+            - name: BRAND_PRIMARY_COLOR
+              value: {{ .Values.brand.primaryColor | quote }}
+            {{- if .Values.oidc.enabled }}
+            - name: OIDC_ENABLED
+              value: "true"
+            - name: OIDC_ISSUER
+              value: {{ .Values.oidc.issuer | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: OIDC_CLIENT_SECRET
+            - name: OIDC_SCOPES
+              value: {{ .Values.oidc.scopes | quote }}
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ .Values.oidc.groupsClaim | quote }}
+            - name: OIDC_GROUP_ROLES
+              value: {{ .Values.oidc.groupRoles | quote }}
+            - name: OIDC_DEFAULT_ROLE
+              value: {{ .Values.oidc.defaultRole | quote }}
+            - name: OIDC_REDIRECT_URI
+              value: {{ .Values.oidc.redirectUri | quote }}
+            {{- end }}
+            {{- if .Values.breakGlass.enabled }}
+            - name: BREAK_GLASS_ADMIN_USER
+              value: {{ .Values.breakGlass.username | quote }}
+            - name: BREAK_GLASS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: BREAK_GLASS_ADMIN_PASSWORD
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: {{ .Values.resources.requests.memory }}
+              cpu: {{ .Values.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.resources.limits.memory }}
+              cpu: {{ .Values.resources.limits.cpu }}
+          volumeMounts:
+            - name: chat-ui-data
+              mountPath: /data
+      volumes:
+        - name: chat-ui-data
+          persistentVolumeClaim:
+            claimName: chat-ui-pvc
