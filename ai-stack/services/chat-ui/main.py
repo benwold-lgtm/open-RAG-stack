@@ -16,6 +16,8 @@ Principal (via rag_auth) so routes guard on scopes, never role strings.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import re
 import secrets
@@ -23,13 +25,16 @@ import sqlite3
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 
+import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -44,7 +49,8 @@ from rag_auth import (
     verify_boot_config,
     whoami_payload,
 )
-from rag_auth.oidc import build_oidc_config
+from rag_auth.errors import OIDCError
+from rag_auth.oidc import JWKSCache, OIDCConfig, OIDCValidator
 
 # ── Config (env) ────────────────────────────────────────────────────────────
 DB_PATH = os.environ.get("CHAT_UI_DB", "/data/chat_ui.db")
@@ -73,6 +79,24 @@ BREAK_GLASS_ENABLED = bool(BREAK_GLASS_USER and BREAK_GLASS_PASSWORD)
 LOGIN_RATE_LIMIT = int(os.environ.get("LOGIN_RATE_LIMIT", "5"))
 LOGIN_RATE_WINDOW = int(os.environ.get("LOGIN_RATE_WINDOW", "60"))
 
+# OIDC single-sign-on (this service is the Relying Party). chat-ui runs the login flow
+# (PKCE + state + nonce) and validates the IdP's ID token (audience = client_id) via rag_auth.
+OIDC_ENABLED = os.environ.get("OIDC_ENABLED", "false").lower() in ("1", "true", "yes")
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
+OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
+OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
+OIDC_SCOPES = os.environ.get("OIDC_SCOPES", "openid profile email groups")
+OIDC_REDIRECT_URI = os.environ.get("OIDC_REDIRECT_URI", "")  # override; else derived per request
+OIDC_GROUPS_CLAIM = os.environ.get("OIDC_GROUPS_CLAIM", "groups")
+OIDC_USERNAME_CLAIM = os.environ.get("OIDC_USERNAME_CLAIM", "preferred_username")
+OIDC_EMAIL_CLAIM = os.environ.get("OIDC_EMAIL_CLAIM", "email")
+OIDC_GROUP_ROLES_RAW = os.environ.get("OIDC_GROUP_ROLES", "")
+# Default role for an authenticated SSO user whose groups map to nothing. Empty = deny (the
+# user authenticates but gets no role → every scoped route 403s). Defaults to 'user'.
+OIDC_DEFAULT_ROLE = os.environ.get("OIDC_DEFAULT_ROLE", "user") or None
+OIDC_TX_TTL = int(os.environ.get("OIDC_TX_TTL", "600"))  # login-transaction cookie lifetime
+OIDC_TX_COOKIE = "oidc_tx"
+
 # ── Scope model (chat-ui domain) ────────────────────────────────────────────
 CHAT_USE = "chat:use"
 CONVOS_READ = "convos:read"
@@ -91,6 +115,8 @@ ROLES = RoleScopes(
 # is unset we mint an ephemeral one (dev only; the boot check refuses this in production).
 _secret = SESSION_SECRET or secrets.token_urlsafe(32)
 _signer = URLSafeTimedSerializer(_secret, salt="chat-ui-session")
+# Separate salt for the short-lived OIDC login-transaction cookie (state/nonce/PKCE verifier).
+_tx_signer = URLSafeTimedSerializer(_secret, salt="chat-ui-oidc-tx")
 
 _ph = PasswordHasher()
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,32}$")
@@ -301,18 +327,197 @@ def principal_for(user: sqlite3.Row) -> Principal:
     return Principal(subject=f"{user['auth_source']}:{user['id']}", scopes=scopes, auth_method=method)
 
 
+# ── OIDC user provisioning ───────────────────────────────────────────────────
+def _unique_username(c: sqlite3.Connection, base: str) -> str:
+    """Sanitise an IdP-supplied name to our username rules and make it unique."""
+    base = re.sub(r"[^A-Za-z0-9._-]", "", base or "")[:32]
+    if len(base) < 3:
+        base = (base + "user")[:32]
+    candidate, i = base, 1
+    while c.execute("SELECT 1 FROM users WHERE username = ?", (candidate,)).fetchone():
+        suffix = str(i)
+        candidate, i = base[: 32 - len(suffix)] + suffix, i + 1
+    return candidate
+
+
+def upsert_oidc_user(sub: str, username: str, email: Optional[str], role: str) -> sqlite3.Row:
+    """Find-or-create the user row for an SSO identity (keyed by the IdP subject).
+
+    On every login the role and email are refreshed from the IdP claims — the IdP's groups
+    are authoritative for SSO accounts. A locally-disabled SSO account stays disabled.
+    """
+    now = int(time.time())
+    with connect() as c:
+        row = c.execute(
+            "SELECT * FROM users WHERE oidc_sub = ? AND auth_source = 'oidc'", (sub,)
+        ).fetchone()
+        if row is None:
+            uname = _unique_username(c, username)
+            cur = c.execute(
+                "INSERT INTO users(username, email, auth_source, oidc_sub, role, status, created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (uname, email, "oidc", sub, role, "active", now),
+            )
+            uid = cur.lastrowid
+        else:
+            uid = row["id"]
+            status = "disabled" if row["status"] == "disabled" else "active"
+            c.execute("UPDATE users SET email = ?, role = ?, status = ? WHERE id = ?",
+                      (email, role, status, uid))
+        return c.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+
+
+# ── OIDC Relying-Party provider ──────────────────────────────────────────────
+def _parse_group_roles(raw: str) -> dict[str, str]:
+    """Parse ``"group-a:admin,group-b:user"`` into a dict (IdP group -> chat-ui role)."""
+    out: dict[str, str] = {}
+    for entry in (s.strip() for s in raw.split(",") if s.strip()):
+        group, _, role = entry.partition(":")
+        if group.strip() and role.strip():
+            out[group.strip()] = role.strip()
+    return out
+
+
+@dataclass
+class OIDCProvider:
+    """A configured OIDC Relying Party: builds the auth-redirect, exchanges the code, and
+    resolves a validated ID token to a (subject, username, email, role) identity."""
+
+    client_id: str
+    client_secret: str
+    scopes: str
+    authorization_endpoint: str
+    token_endpoint: str
+    validator: OIDCValidator
+    username_claim: str
+    email_claim: str
+    groups_claim: str
+    group_roles: dict[str, str]
+    default_role: Optional[str]
+    http_client: Optional[httpx.AsyncClient] = None  # injected in tests; else created per call
+
+    def authorization_url(self, *, redirect_uri: str, state: str, nonce: str, code_challenge: str) -> str:
+        params = {
+            "response_type": "code",
+            "client_id": self.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": self.scopes,
+            "state": state,
+            "nonce": nonce,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+        return f"{self.authorization_endpoint}?{urlencode(params)}"
+
+    async def exchange_code(self, *, code: str, code_verifier: str, redirect_uri: str) -> str:
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "code_verifier": code_verifier,
+        }
+        client = self.http_client or httpx.AsyncClient(timeout=10.0)
+        try:
+            resp = await client.post(self.token_endpoint, data=data)
+            resp.raise_for_status()
+            body = resp.json()
+        finally:
+            if self.http_client is None:
+                await client.aclose()
+        id_token = body.get("id_token")
+        if not id_token:
+            raise OIDCError("token endpoint response contained no id_token")
+        return id_token
+
+    async def identity(self, id_token: str, *, nonce: str) -> tuple[str, str, Optional[str], Optional[str]]:
+        claims = await self.validator.validate_id_token(id_token, nonce=nonce)
+        sub = claims.get(self.validator.cfg.subject_claim) or claims.get("sub")
+        if not sub:
+            raise OIDCError("id_token has no subject claim")
+        username = claims.get(self.username_claim) or claims.get(self.email_claim) or f"oidc-{sub}"
+        email = claims.get(self.email_claim)
+        groups = claims.get(self.groups_claim, [])
+        if isinstance(groups, str):
+            groups = [groups]
+        return sub, username, email, self._role_for(groups)
+
+    def _role_for(self, groups: list[str]) -> Optional[str]:
+        mapped = [self.group_roles[g] for g in groups if g in self.group_roles]
+        if "admin" in mapped:
+            return "admin"
+        if mapped:  # any other mapped group → plain user (chat-ui has a two-role model)
+            return "user"
+        return self.default_role
+
+
+def oidc_configured() -> bool:
+    return bool(OIDC_ENABLED and OIDC_ISSUER and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET)
+
+
+_oidc_provider: Optional[OIDCProvider] = None
+
+
+async def build_oidc_provider() -> OIDCProvider:
+    """Discover the IdP's endpoints and assemble the provider (network call — lazy, on first use
+    so the IdP need not be reachable at boot). Tests assign `_oidc_provider` directly instead."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        doc = (await client.get(f"{OIDC_ISSUER.rstrip('/')}/.well-known/openid-configuration")).json()
+    jwks_uri = doc["jwks_uri"]
+
+    async def fetch() -> list[dict]:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(jwks_uri)
+            r.raise_for_status()
+            return r.json().get("keys", [])
+
+    group_roles = _parse_group_roles(OIDC_GROUP_ROLES_RAW)
+    cfg = OIDCConfig(
+        issuer=OIDC_ISSUER,
+        audience=OIDC_CLIENT_ID,  # ID tokens are audienced to the client
+        jwks_uri=jwks_uri,
+        groups_claim=OIDC_GROUPS_CLAIM,
+        group_roles=group_roles,
+        default_role=OIDC_DEFAULT_ROLE,
+    )
+    validator = OIDCValidator(cfg, ROLES, JWKSCache(fetch, ttl=600, min_refresh_interval=30))
+    return OIDCProvider(
+        client_id=OIDC_CLIENT_ID,
+        client_secret=OIDC_CLIENT_SECRET,
+        scopes=OIDC_SCOPES,
+        authorization_endpoint=doc["authorization_endpoint"],
+        token_endpoint=doc["token_endpoint"],
+        validator=validator,
+        username_claim=OIDC_USERNAME_CLAIM,
+        email_claim=OIDC_EMAIL_CLAIM,
+        groups_claim=OIDC_GROUPS_CLAIM,
+        group_roles=group_roles,
+        default_role=OIDC_DEFAULT_ROLE,
+    )
+
+
+async def get_oidc_provider() -> OIDCProvider:
+    global _oidc_provider
+    if _oidc_provider is None:
+        _oidc_provider = await build_oidc_provider()
+    return _oidc_provider
+
+
 # ── Boot ────────────────────────────────────────────────────────────────────
 def run_boot_checks() -> None:
     """Fail-closed startup validation. Refuses an unsafe production config; logs warnings."""
-    oidc_cfg = build_oidc_config()  # raises if OIDC_ENABLED but misconfigured
-    oidc_enabled = oidc_cfg is not None
+    if OIDC_ENABLED and not (OIDC_ISSUER and OIDC_CLIENT_ID and OIDC_CLIENT_SECRET):
+        raise AuthConfigError(
+            "OIDC_ENABLED but OIDC_ISSUER / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET are not all set."
+        )
     break_glass = BREAK_GLASS_ENABLED
-    any_auth = LOCAL_LOGIN_ENABLED or oidc_enabled or break_glass
+    any_auth = LOCAL_LOGIN_ENABLED or OIDC_ENABLED or break_glass
 
     warnings = verify_boot_config(
         production=PRODUCTION,
         any_auth_enabled=any_auth,
-        oidc_enabled=oidc_enabled,
+        oidc_enabled=OIDC_ENABLED,
         break_glass_present=break_glass,
     )
     if PRODUCTION and not SESSION_SECRET:
@@ -453,6 +658,104 @@ async def logout(request: Request):
     resp = JSONResponse({"status": "ok"})
     clear_session_cookie(resp)
     return resp
+
+
+# ── OIDC single-sign-on (Relying Party flow) ─────────────────────────────────
+def _b64url(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _callback_redirect_uri(request: Request) -> str:
+    return OIDC_REDIRECT_URI or str(request.url_for("oidc_callback"))
+
+
+@app.get("/api/auth/oidc/login")
+async def oidc_login(request: Request):
+    if not oidc_configured():
+        raise HTTPException(404, "OIDC sign-in is not enabled")
+    provider = await get_oidc_provider()
+
+    state = secrets.token_urlsafe(24)
+    nonce = secrets.token_urlsafe(24)
+    verifier = secrets.token_urlsafe(48)  # PKCE code_verifier
+    challenge = _b64url(hashlib.sha256(verifier.encode()).digest())  # S256
+    redirect_uri = _callback_redirect_uri(request)
+
+    url = provider.authorization_url(
+        redirect_uri=redirect_uri, state=state, nonce=nonce, code_challenge=challenge
+    )
+    # The login transaction (state/nonce/verifier/redirect) rides in a short-lived signed,
+    # httpOnly cookie rather than server state — no table, and it's bound to this browser.
+    tx = _tx_signer.dumps(
+        {"state": state, "nonce": nonce, "verifier": verifier, "redirect_uri": redirect_uri}
+    )
+    resp = RedirectResponse(url, status_code=302)
+    resp.set_cookie(
+        OIDC_TX_COOKIE, tx, max_age=OIDC_TX_TTL,
+        httponly=True, secure=COOKIE_SECURE, samesite="lax",
+    )
+    return resp
+
+
+@app.get("/api/auth/oidc/callback", name="oidc_callback")
+async def oidc_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    if not oidc_configured():
+        raise HTTPException(404, "OIDC sign-in is not enabled")
+    if error:
+        raise HTTPException(400, f"Identity provider returned an error: {error}")
+    if not code or not state:
+        raise HTTPException(400, "Missing authorization code or state")
+
+    raw = request.cookies.get(OIDC_TX_COOKIE)
+    if not raw:
+        raise HTTPException(400, "Missing or expired login transaction; please sign in again")
+    try:
+        tx = _tx_signer.loads(raw, max_age=OIDC_TX_TTL)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(400, "Invalid or expired login transaction; please sign in again")
+    if not secrets.compare_digest(state, tx["state"]):
+        raise HTTPException(400, "State mismatch")  # CSRF guard
+
+    provider = await get_oidc_provider()
+    try:
+        id_token = await provider.exchange_code(
+            code=code, code_verifier=tx["verifier"], redirect_uri=tx["redirect_uri"]
+        )
+        sub, username, email, role = await provider.identity(id_token, nonce=tx["nonce"])
+    except OIDCError as exc:
+        raise HTTPException(401, f"OIDC login failed: {exc}")
+    except httpx.HTTPError:
+        raise HTTPException(502, "Could not reach the identity provider")
+
+    if role is None:
+        raise HTTPException(403, "Your account is not authorised for this application")
+
+    user = upsert_oidc_user(sub, username, email, role)
+    if user["status"] != "active":
+        raise HTTPException(403, "Account is disabled")
+
+    token = create_session(user["id"])  # fresh session on every SSO login
+    resp = RedirectResponse("/", status_code=302)
+    set_session_cookie(resp, token)
+    resp.delete_cookie(OIDC_TX_COOKIE)
+    return resp
+
+
+@app.get("/api/auth/config")
+async def auth_config():
+    """Unauthenticated: lets the SPA decide which sign-in options to render."""
+    return {
+        "brand_name": BRAND_NAME,
+        "brand_primary_color": BRAND_PRIMARY_COLOR,
+        "local_login": LOCAL_LOGIN_ENABLED,
+        "registration_enabled": REGISTRATION_ENABLED and LOCAL_LOGIN_ENABLED,
+        "oidc": {"enabled": oidc_configured(), "login_path": "/api/auth/oidc/login"},
+    }
 
 
 # ── Admin: user management (requires users:manage) ───────────────────────────
