@@ -16,8 +16,10 @@ Principal (via rag_auth) so routes guard on scopes, never role strings.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -34,7 +36,7 @@ import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -60,7 +62,11 @@ COOKIE_NAME = "chat_session"
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() in ("1", "true", "yes")
 PRODUCTION = os.environ.get("ENVIRONMENT", "production").lower() == "production"
 LOCAL_LOGIN_ENABLED = os.environ.get("LOCAL_LOGIN_ENABLED", "true").lower() in ("1", "true", "yes")
-AI_AGENT_URL = os.environ.get("AI_AGENT_URL", "http://ai-agent:8000/v1")  # used in B5
+AI_AGENT_URL = os.environ.get("AI_AGENT_URL", "http://ai-agent:8000/v1")
+# Default model for /api/chat when the client doesn't name one; empty = discover from ai-agent.
+DEFAULT_MODEL = os.environ.get("CHAT_DEFAULT_MODEL", "")
+AGENT_TIMEOUT = float(os.environ.get("AI_AGENT_TIMEOUT", "120"))  # LLM answers can be slow
+STREAM_DELAY = float(os.environ.get("CHAT_STREAM_DELAY", "0.01"))  # word-replay pacing (UX)
 BRAND_NAME = os.environ.get("BRAND_NAME", "Open RAG Chat")
 BRAND_PRIMARY_COLOR = os.environ.get("BRAND_PRIMARY_COLOR", "#2563eb")
 
@@ -963,6 +969,103 @@ async def add_message_route(request: Request, conv_id: int, body: MessageBody):
     if not body.content.strip():
         raise HTTPException(422, "content must not be empty")
     return dict(add_message(conv_id, body.role, body.content))
+
+
+# ── Chat (proxy to ai-agent /v1) + models ────────────────────────────────────
+# ai-agent assembles the whole answer (with its Sources/citation markdown appended) before it
+# replays it, and only the non-streaming response carries structured sources. So chat-ui calls
+# it with stream=False, persists the turn, then replays the saved answer to the browser as SSE.
+# Everything fallible (the LLM call, persistence) happens before the stream starts, so failures
+# surface as a normal HTTP status rather than a half-sent stream.
+class ChatBody(BaseModel):
+    conversation_id: int
+    content: str
+    model: Optional[str] = None
+
+
+_default_model: Optional[str] = None
+
+
+async def _agent_chat(messages: list[dict], model: str) -> dict:
+    payload = {"model": model, "messages": messages, "stream": False}
+    async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
+        resp = await client.post(f"{AI_AGENT_URL}/chat/completions", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _agent_models() -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{AI_AGENT_URL}/models")
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def resolve_model(provided: Optional[str]) -> str:
+    """The model to ask for: the client's choice, else the configured default, else the first
+    model ai-agent advertises (discovered once and cached)."""
+    global _default_model
+    if provided:
+        return provided
+    if DEFAULT_MODEL:
+        return DEFAULT_MODEL
+    if _default_model is None:
+        models = (await _agent_models()).get("data", [])
+        _default_model = models[0]["id"] if models else "default"
+    return _default_model
+
+
+def _derive_title(text: str) -> str:
+    return " ".join(text.split())[:60] or "New conversation"
+
+
+def _sse(obj: dict) -> str:
+    return f"data: {json.dumps(obj)}\n\n"
+
+
+@app.post("/api/chat", dependencies=[Depends(require_scope(CHAT_USE))])
+async def chat(request: Request, body: ChatBody):
+    conv = get_conversation(_current_user_id(request), body.conversation_id)
+    if conv is None:
+        raise HTTPException(404, "Conversation not found")
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(422, "Message must not be empty")
+
+    add_message(body.conversation_id, "user", content)
+    if not conv["title"]:  # name a fresh conversation after its first message
+        rename_conversation(body.conversation_id, _derive_title(content))
+
+    history = [{"role": m["role"], "content": m["content"]} for m in list_messages(body.conversation_id)]
+    model = await resolve_model(body.model)
+    try:
+        agent_json = await _agent_chat(history, model)
+        answer = agent_json["choices"][0]["message"]["content"]
+    except httpx.HTTPError:
+        raise HTTPException(502, "The AI service is unavailable")
+    except (KeyError, IndexError, TypeError):
+        raise HTTPException(502, "The AI service returned an unexpected response")
+
+    saved = add_message(body.conversation_id, "assistant", answer)
+
+    async def replay():
+        words = answer.split(" ")
+        for i, word in enumerate(words):
+            yield _sse({"delta": word if i == len(words) - 1 else word + " "})
+            if STREAM_DELAY:
+                await asyncio.sleep(STREAM_DELAY)
+        yield _sse({"done": True, "message_id": saved["id"], "conversation_id": body.conversation_id})
+
+    return StreamingResponse(replay(), media_type="text/event-stream")
+
+
+@app.get("/api/models", dependencies=[Depends(require_scope(MODELS_READ))])
+async def models():
+    try:
+        data = await _agent_models()
+    except httpx.HTTPError:
+        raise HTTPException(502, "The AI service is unavailable")
+    return [{"id": m.get("id")} for m in data.get("data", [])]
 
 
 @app.get("/", response_class=HTMLResponse)
