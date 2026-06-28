@@ -631,6 +631,30 @@ async def attach_principal(request: Request, call_next):
     return await call_next(request)
 
 
+# Content-Security-Policy: scripts/styles only from this origin (the vendored marked +
+# DOMPurify are served from /static), which is the real defence-in-depth against XSS in the
+# LLM-influenced markdown we render. Images are allowed from anywhere so page-image citations
+# (served from the operator-set INGESTION_PUBLIC_URL) load. 'unsafe-inline' covers the small
+# inline <style> block in index.html; no inline scripts are used.
+_CSP = (
+    "default-src 'self'; "
+    "img-src 'self' data: http: https:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    return resp
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():

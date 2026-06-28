@@ -361,7 +361,6 @@ open-RAG-stack/
 │   │   ├── chat-ui/
 │   │   ├── embedding/
 │   │   ├── ingestion/
-│   │   ├── open-webui/       # deprecated — replaced by chat-ui
 │   │   ├── qdrant/
 │   │   └── vllm-server/
 │   ├── lib/
@@ -411,6 +410,13 @@ The defaults in this repo are designed for getting started quickly. Before putti
 The **chat UI** authenticates every request. The first account to register becomes the admin; subsequent local accounts stay pending until an admin approves them. It also supports **OIDC single sign-on** (Entra, Okta, Google, Keycloak — configure via the chart `oidc.*` values or the `.env` OIDC block) and a **break-glass** recovery admin independent of the user table and the IdP. In production (`ENVIRONMENT=production`) it **fails closed** — it refuses to boot without a `SESSION_SECRET` and at least one auth method. On any untrusted network, set a strong `SESSION_SECRET`, serve over TLS, and set `cookieSecure: true`.
 
 The **RAG Admin UI** (port 8005 / NodePort 30085) is unauthenticated by default. To require a login on every page and write/delete action, set `ADMIN_USER` and `ADMIN_PASSWORD` — in `.env` for Docker Compose, or as the `rag-admin-auth` secret with `auth.enabled: true` in the chart. The `/health` probe stays open. This gates the UI; keep network access LAN-scoped regardless.
+
+Before exposing the **chat UI** beyond a trusted LAN:
+
+- **Serve over TLS** (ingress or reverse proxy) and set `cookieSecure: true` (chart) / `COOKIE_SECURE=true` (Compose). Session cookies are `HttpOnly` + `SameSite=Lax`; the Secure flag is the missing piece on plain HTTP. It ships **off** so a bare NodePort works out of the box — turn it on once TLS is in front.
+- **Set a strong, persistent `SESSION_SECRET`** (the Helm path auto-generates one into `chat-ui-secrets`; for Compose, generate with `openssl rand -hex 32`). Rotating it invalidates all sessions.
+- **Tighten registration** for a closed user base: leave `REQUIRE_APPROVAL=true` (the default — new accounts wait for an admin), or set `REGISTRATION_ENABLED=false` and create accounts as an admin. With OIDC, set `OIDC_DEFAULT_ROLE=""` to deny users who match no mapped group.
+- The login **rate-limiter is per-process**, which is exact for the default single replica. If you scale chat-ui to multiple replicas, put a shared limiter (e.g. a reverse-proxy or Redis-backed limit) in front — the in-memory counter won't be shared across pods. Responses also carry `Content-Security-Policy`, `X-Frame-Options: DENY`, and `X-Content-Type-Options: nosniff`.
 
 ### Network isolation (NetworkPolicies)
 
