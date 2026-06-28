@@ -278,3 +278,17 @@ async def test_composite_idp_down_break_glass_still_works(jwks, sign, claims_fac
     # ...but the break-glass admin key still gets you in.
     p = await comp.authenticate("bg-admin")
     assert p is not None and p.has("users:manage")
+
+
+# --- validate_id_token (RP login flow: returns claims, enforces nonce) -------
+
+async def test_validate_id_token_returns_claims(jwks, sign, claims_factory):
+    token = sign(claims_factory(sub="alice", nonce="n-123", email="a@corp.test"))
+    claims = await validator(jwks).validate_id_token(token, nonce="n-123")
+    assert claims["sub"] == "alice" and claims["email"] == "a@corp.test"
+
+
+async def test_validate_id_token_nonce_mismatch_rejected(jwks, sign, claims_factory):
+    token = sign(claims_factory(nonce="issued"))
+    with pytest.raises(OIDCError):
+        await validator(jwks).validate_id_token(token, nonce="different")

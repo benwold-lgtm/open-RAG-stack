@@ -143,7 +143,12 @@ class OIDCValidator:
         self.roles = roles
         self.jwks = jwks
 
-    async def validate(self, token: str) -> Principal:
+    async def _verify(self, token: str) -> Mapping:
+        """Cryptographically verify a JWT (signature + iss/aud/exp) and return its claims.
+
+        Shared by :meth:`validate` (access tokens, RS use) and :meth:`validate_id_token`
+        (ID tokens, RP login flow) so the security-critical decode lives in exactly one place.
+        """
         try:
             header = jwt.get_unverified_header(token)
         except jwt.InvalidTokenError as exc:
@@ -159,7 +164,7 @@ class OIDCValidator:
         jwk = await self.jwks.get_jwk(kid)  # only ever a key from the IdP's JWKS
         try:
             signing_key = jwt.PyJWK.from_dict(jwk).key
-            claims = jwt.decode(
+            return jwt.decode(
                 token,
                 signing_key,
                 algorithms=list(self.cfg.algorithms),
@@ -173,7 +178,21 @@ class OIDCValidator:
         except Exception as exc:  # malformed JWK, key errors, etc.
             raise OIDCError(f"token validation error: {exc}") from exc
 
-        return self._principal_from_claims(claims)
+    async def validate(self, token: str) -> Principal:
+        return self._principal_from_claims(await self._verify(token))
+
+    async def validate_id_token(self, token: str, *, nonce: Optional[str] = None) -> Mapping:
+        """Verify an OIDC **ID token** (RP login flow) and return its claims.
+
+        Same cryptographic checks as :meth:`validate`; additionally enforces the ``nonce``
+        when one is supplied (binds the ID token to this client's auth request). Construct the
+        validator with ``audience = client_id`` for ID-token verification. The caller reads
+        identity claims (subject, username, email, groups) from the returned mapping.
+        """
+        claims = await self._verify(token)
+        if nonce is not None and claims.get("nonce") != nonce:
+            raise OIDCError("ID token nonce mismatch")
+        return claims
 
     def _principal_from_claims(self, claims: Mapping) -> Principal:
         subject = claims.get(self.cfg.subject_claim) or claims.get("sub")
