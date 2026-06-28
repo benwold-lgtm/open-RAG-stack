@@ -236,6 +236,7 @@ th.cbcol,td.cbcol{width:30px;text-align:center;padding-left:.4rem;padding-right:
       <span id="bulk-count"><b>0</b> selected</span>
       <div class="sp"></div>
       <button class="btn btn-ghost btn-sm" onclick="showBulkMove()">&#8631; Move to&hellip;</button>
+      <button class="btn btn-ghost btn-sm" onclick="showBulkVendor()">&#9998; Set vendor&hellip;</button>
       <button class="btn btn-danger btn-sm" onclick="bulkDelete()">&#x2715; Delete</button>
       <button class="btn btn-ghost btn-sm" onclick="clearSelection()">Clear</button>
     </div>
@@ -278,6 +279,20 @@ th.cbcol,td.cbcol{width:30px;text-align:center;padding-left:.4rem;padding-right:
     <div style="display:flex;gap:.5rem;margin-top:1rem">
       <button class="btn btn-primary btn-sm" onclick="confirmMove()">Move</button>
       <button class="btn btn-ghost btn-sm" onclick="closeMove()">Cancel</button>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="vendor-bg" onclick="if(event.target===this)closeVendor()">
+  <div class="modal">
+    <h3 style="color:#2563eb">Set vendor / source tag</h3>
+    <div class="meta" id="vendor-meta"></div>
+    <div class="field" style="margin-top:.6rem">
+      <label>New vendor / source tag</label>
+      <input type="text" id="vendor-input" placeholder="e.g. HPE, Dell, engineering" onkeydown="if(event.key==='Enter')confirmVendor()">
+    </div>
+    <div style="display:flex;gap:.5rem;margin-top:1rem">
+      <button class="btn btn-primary btn-sm" onclick="confirmVendor()">Apply</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeVendor()">Cancel</button>
     </div>
   </div>
 </div>
@@ -553,6 +568,29 @@ function showBulkMove() {
   $('move-bg').classList.add('show');
 }
 
+// ── set vendor / source tag over the current selection ────────────────────────
+function showBulkVendor() {
+  if (!selected.size) return;
+  $('vendor-meta').innerHTML = '<div><b>' + selected.size + ' document(s)</b> selected</div>';
+  $('vendor-input').value = '';
+  $('vendor-bg').classList.add('show');
+  $('vendor-input').focus();
+}
+function closeVendor() { $('vendor-bg').classList.remove('show'); }
+function setVendorOne(id, v) {
+  return fetch('/documents/' + encodeURIComponent(id) + '/vendor', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({vendor: v})
+  });
+}
+async function confirmVendor() {
+  const v = $('vendor-input').value.trim();
+  if (!v) { toast('Enter a vendor / source tag', 'error'); return; }
+  const ids = [...selected];
+  closeVendor();
+  await runBulk(ids, id => setVendorOne(id, v), 'Re-tagged');
+}
+
 // ── rename collection (Phase 7.P5) ────────────────────────────────────────────
 function toggleRenameCol() {
   const cur = col();
@@ -761,6 +799,13 @@ async def move_document(doc_id: str, request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/move", json=body)
+        return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+
+@app.post("/documents/{doc_id}/vendor")
+async def set_document_vendor(doc_id: str, request: Request):
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/vendor", json=body)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
