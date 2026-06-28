@@ -761,6 +761,9 @@ class CollectionCreateRequest(BaseModel):
 class MoveDocumentRequest(BaseModel):
     target_collection: str
 
+class SetVendorRequest(BaseModel):
+    vendor: str
+
 class RenameCollectionRequest(BaseModel):
     new_name: str
 
@@ -997,6 +1000,39 @@ async def move_document(doc_id: str, request: MoveDocumentRequest):
         await db.commit()
 
     return {"message": f"Moved document from '{source}' to '{target}'", "points_moved": moved}
+
+@app.post("/documents/{doc_id}/vendor")
+async def set_document_vendor(doc_id: str, request: SetVendorRequest):
+    """Update a document's vendor / source tag in place — across its Qdrant point payloads
+    (set_payload, no re-embed and point IDs unchanged) plus the SQLite + FTS5 records."""
+    new_vendor = request.vendor.strip()
+    if not new_vendor:
+        raise HTTPException(status_code=400, detail="vendor is required")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM documents WHERE id=?", (doc_id,)) as cursor:
+            row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+    doc = dict(row)
+
+    client = get_qdrant()
+    existing = [c.name for c in client.get_collections().collections]
+    if doc["collection"] in existing:
+        client.set_payload(
+            collection_name=doc["collection"],
+            payload={"vendor": new_vendor},
+            points=Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]),
+        )
+
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE documents SET vendor=?, updated_at=? WHERE id=?", (new_vendor, now, doc_id))
+        await db.execute("UPDATE fts SET vendor=? WHERE doc_id=?", (new_vendor, doc_id))
+        await db.commit()
+
+    return {"message": f"Vendor updated to '{new_vendor}'", "doc_id": doc_id, "vendor": new_vendor}
 
 @app.get("/collections")
 async def list_collections():
