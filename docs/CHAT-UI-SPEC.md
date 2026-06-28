@@ -3,6 +3,23 @@
 **Status:** Draft for review (spec-first; no code yet)
 **Last Updated:** 2026-06-28
 **Decision:** Build a first-party, multi-user chat UI to replace Open-WebUI.
+**Auth model (refined 2026-06-28):** OIDC SSO (Entra/Okta/Google/Keycloak) **+ local-user fallback**. See §5.
+
+---
+
+## Review focus — three things to look at first
+
+These are the parts most worth your attention on review; the rest is well-trodden:
+
+1. **Streaming ↔ citations contract (§7).** The one real technical subtlety. The agent
+   appends the Sources / Verified-quotes blocks *after* generation; with token streaming
+   those must arrive after the model tokens, and `ai-agent` likely needs SSE streaming added.
+   Scoped and small, but design it deliberately.
+2. **Auth is the bulk of the work (§5, milestone M1).** "Full multi-user" — now with OIDC SSO
+   **plus** a local-account fallback — roughly doubles the timeline vs a single-admin MVP, but
+   it's the right call for a resell-grade product. Spec-first surfaces that now, not mid-build.
+3. **Open decisions (§13).** A few small calls (conversation titles, password reset, sessions
+   vs JWT, OIDC group→role mapping) with leanings noted; settling them unblocks M1.
 
 ---
 
@@ -74,7 +91,7 @@ directly), which gives us one clean place for auth, history, and CSRF.
 
 | Table | Columns (sketch) |
 |---|---|
-| `users` | `id, username, email, password_hash, role('admin'|'user'), status('pending'|'active'|'disabled'), created_at` |
+| `users` | `id, username, email, password_hash (nullable for SSO), auth_source('local'|'oidc'), oidc_sub, role('admin'|'user'), status('pending'|'active'|'disabled'), created_at` |
 | `sessions` | `token, user_id, created_at, expires_at` (server-side, revocable) |
 | `conversations` | `id, user_id, title, created_at, updated_at` |
 | `messages` | `id, conversation_id, role('user'|'assistant'), content, created_at` |
@@ -88,16 +105,42 @@ Notes:
 
 ## 5. Authentication (the largest piece)
 
-Mirror Open-WebUI's familiar model so it feels expected:
-- **Registration → `pending` → admin approval → `active`.** The **first registered user
-  becomes `admin` + `active`** automatically (bootstraps the system).
-- **Passwords:** hashed with bcrypt/argon2 (`passlib` or `argon2-cffi`). Never stored plain.
-- **Sessions:** server-side token in `sessions`, delivered as a **signed, httpOnly, secure,
-  SameSite cookie**. Chosen over JWT because it's **revocable** (disable a user → kill their
-  sessions) and simpler to reason about.
-- **Roles:** `admin` (manage users) and `user`. Admin panel to approve / disable / promote.
+**Design principle (project guidance): solve for ~90% of real deployments — two layers, not
+five.**
+
+- **Federated SSO via OIDC** — a single protocol that covers the common enterprise IdPs:
+  **Microsoft Entra ID** (formerly Azure AD), **Okta**, **Google Workspace**, **Keycloak**,
+  Auth0, etc. On-prem **Active Directory** is normally fronted by Entra/ADFS and speaks OIDC
+  too, so OIDC reaches it without a separate integration. **Raw LDAP is intentionally out of
+  scope** (rarely seen now) — revisit only if a specific deployment demands it.
+- **Local accounts — always available, as the fallback.** Even when OIDC is configured, local
+  login stays on so admins/users can still get in **when the IdP is unreachable** (provider
+  outage, or an air-gapped site that can't reach a cloud IdP). Local accounts are also the
+  default for small/self-hosted deployments that have no IdP at all. *This dual-path (federated
+  primary + local fallback) is a hard requirement.*
+
+**Local accounts**
+- **Registration → `pending` → admin approval → `active`.** First registered user becomes
+  `admin` + `active` automatically (bootstraps the system).
+- Passwords hashed with bcrypt/argon2 (`passlib` / `argon2-cffi`); never stored plain.
+- Password reset is **admin-initiated** (no email dependency — air-gap friendly).
+
+**OIDC SSO (optional, config-driven)**
+- Standard **Authorization Code + PKCE** flow against the org's IdP.
+- **Auto-provision** a local `users` row on first successful SSO login; map IdP **group/role
+  claims → app roles** (`admin`/`user`), with optional admin approval for first login.
+- Config: `OIDC_ENABLED`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
+  `OIDC_REDIRECT_URL`, and a claim/group→role map. Disabled by default.
+- Keep the **local-login route reachable even when OIDC is enabled** (a "sign in locally"
+  link), so an IdP outage never locks everyone out.
+
+**Sessions & roles (both paths converge here)**
+- Server-side session token in `sessions`, delivered as a **signed, httpOnly, Secure,
+  SameSite cookie**. Chosen over JWT because it's **revocable** (disable a user / force logout
+  → kill sessions) and simpler. A federated login and a local login produce the *same* session.
+- Roles: `admin` (manage users + settings) and `user`. Admin panel to approve / disable /
+  promote, regardless of how the account was created.
 - **Config flags:** `REGISTRATION_ENABLED`, `REQUIRE_APPROVAL`, session TTL.
-- **No email dependency** (air-gap): password reset is **admin-initiated**, not email-link.
 
 ---
 
@@ -187,7 +230,7 @@ A reseller rebrands by setting four values — no fork, no code change.
 
 ## 12. Build milestones (internal sequencing; product-grade target)
 
-1. **M1 — Auth core:** service skeleton, users/sessions, register/login/logout, approval, admin role + user-management API.
+1. **M1 — Auth core:** service skeleton, users/sessions; **local accounts** (register/login/logout, approval, roles) + admin user-management API; **OIDC SSO** (Entra/Okta/Google/Keycloak) with Auth-Code+PKCE, auto-provisioning, claim→role mapping, and the always-available local-login fallback.
 2. **M2 — Conversations:** CRUD + per-user persistence.
 3. **M3 — Chat:** proxy to agent, **streaming**, markdown + citation/image rendering (incl. the §7 contract).
 4. **M4 — Branding + admin UI:** config-driven theme; user-management screen.
@@ -204,6 +247,8 @@ A reseller rebrands by setting four values — no fork, no code change.
 - **Password reset:** admin-initiated only (no email in an air-gapped stack). *Confirm.*
 - **Session store:** server-side sessions (recommended, revocable) vs JWT. *Lean: sessions.*
 - **Existing Open-WebUI users:** migrate vs fresh start. *Lean: fresh — different auth model, clean break.*
+- **OIDC group→role mapping:** trust an IdP group/role claim directly, vs default everyone to
+  `user` and promote via an admin allow-list. *Lean: configurable claim/group→role map, default-deny to `user`.*
 - **Rate-limiting / abuse:** scope for login; per-user chat rate limits later?
 
 ---
@@ -215,6 +260,6 @@ A reseller rebrands by setting four values — no fork, no code change.
 | Chat + streaming | chat-ui SPA + agent SSE (§7) |
 | Markdown + citation/image rendering | vendored `marked` + `DOMPurify` |
 | Conversation history | SQLite (`conversations`, `messages`) |
-| Multi-user auth | chat-ui auth (§5) — owned, no license constraint |
+| Multi-user auth | chat-ui auth (§5) — owned, no license constraint; **OIDC SSO + local fallback** |
 | Model selection | proxy `/v1/models` |
 | (RAG/docs, plugins, pipelines) | dropped — not used by this stack |
