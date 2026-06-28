@@ -367,6 +367,68 @@ def upsert_oidc_user(sub: str, username: str, email: Optional[str], role: str) -
         return c.execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
 
 
+# ── Conversations + messages (per-user data) ─────────────────────────────────
+def create_conversation(user_id: int, title: Optional[str]) -> sqlite3.Row:
+    now = int(time.time())
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO conversations(user_id, title, created_at, updated_at) VALUES (?,?,?,?)",
+            (user_id, title, now, now),
+        )
+        return c.execute("SELECT * FROM conversations WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+
+def list_conversations_for(user_id: int) -> list[sqlite3.Row]:
+    """A user's conversations, most-recently-updated first, with a message count."""
+    with connect() as c:
+        return c.execute(
+            "SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) AS message_count "
+            "FROM conversations c LEFT JOIN messages m ON m.conversation_id = c.id "
+            "WHERE c.user_id = ? GROUP BY c.id ORDER BY c.updated_at DESC, c.id DESC",
+            (user_id,),
+        ).fetchall()
+
+
+def get_conversation(user_id: int, conv_id: int) -> Optional[sqlite3.Row]:
+    """A conversation, only if it belongs to this user (ownership is the data boundary)."""
+    with connect() as c:
+        return c.execute(
+            "SELECT * FROM conversations WHERE id = ? AND user_id = ?", (conv_id, user_id)
+        ).fetchone()
+
+
+def rename_conversation(conv_id: int, title: str) -> None:
+    now = int(time.time())
+    with connect() as c:
+        c.execute("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?", (title, now, conv_id))
+
+
+def delete_conversation(conv_id: int) -> None:
+    with connect() as c:
+        c.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))  # messages cascade (FK)
+
+
+def list_messages(conv_id: int) -> list[sqlite3.Row]:
+    with connect() as c:
+        return c.execute(
+            "SELECT id, role, content, created_at FROM messages "
+            "WHERE conversation_id = ? ORDER BY id",
+            (conv_id,),
+        ).fetchall()
+
+
+def add_message(conv_id: int, role: str, content: str) -> sqlite3.Row:
+    """Append a message and bump the conversation's updated_at. Reused by the B5 chat flow."""
+    now = int(time.time())
+    with connect() as c:
+        cur = c.execute(
+            "INSERT INTO messages(conversation_id, role, content, created_at) VALUES (?,?,?,?)",
+            (conv_id, role, content, now),
+        )
+        c.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, conv_id))
+        return c.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+
 # ── OIDC Relying-Party provider ──────────────────────────────────────────────
 def _parse_group_roles(raw: str) -> dict[str, str]:
     """Parse ``"group-a:admin,group-b:user"`` into a dict (IdP group -> chat-ui role)."""
@@ -815,10 +877,92 @@ async def admin_set_role(user_id: int, body: RoleBody):
     return {"role": body.role}
 
 
-# A scope-guarded placeholder proving the seam end-to-end; real conversation routes land in B4.
-@app.get("/api/conversations", dependencies=[Depends(require_scope(CONVOS_READ))])
-async def list_conversations():
-    return []
+# ── Conversations (per-user; convos:read / convos:write) ─────────────────────
+class ConversationBody(BaseModel):
+    title: Optional[str] = None
+
+
+class RenameBody(BaseModel):
+    title: str
+
+
+class MessageBody(BaseModel):
+    role: str
+    content: str
+
+
+_convos_read = Depends(require_scope(CONVOS_READ))
+_convos_write = Depends(require_scope(CONVOS_WRITE))
+
+
+def _current_user_id(request: Request) -> int:
+    # Guaranteed present: the scope dependency 401s before the route runs without a principal.
+    return request.state.user["id"]
+
+
+def _owned_or_404(request: Request, conv_id: int) -> sqlite3.Row:
+    conv = get_conversation(_current_user_id(request), conv_id)
+    if conv is None:
+        # 404 (not 403) so a conversation's existence never leaks to a non-owner.
+        raise HTTPException(404, "Conversation not found")
+    return conv
+
+
+def _conv_summary(row: sqlite3.Row, message_count: int) -> dict:
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "message_count": message_count,
+    }
+
+
+@app.post("/api/conversations", dependencies=[_convos_write])
+async def create_conversation_route(request: Request, body: ConversationBody):
+    title = (body.title or "").strip() or None
+    row = create_conversation(_current_user_id(request), title)
+    return _conv_summary(row, 0)
+
+
+@app.get("/api/conversations", dependencies=[_convos_read])
+async def list_conversations_route(request: Request):
+    rows = list_conversations_for(_current_user_id(request))
+    return [_conv_summary(r, r["message_count"]) for r in rows]
+
+
+@app.get("/api/conversations/{conv_id}", dependencies=[_convos_read])
+async def get_conversation_route(request: Request, conv_id: int):
+    conv = _owned_or_404(request, conv_id)
+    messages = [dict(m) for m in list_messages(conv_id)]
+    return {**_conv_summary(conv, len(messages)), "messages": messages}
+
+
+@app.patch("/api/conversations/{conv_id}", dependencies=[_convos_write])
+async def rename_conversation_route(request: Request, conv_id: int, body: RenameBody):
+    _owned_or_404(request, conv_id)
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(422, "Title must not be empty")
+    rename_conversation(conv_id, title)
+    return {"id": conv_id, "title": title}
+
+
+@app.delete("/api/conversations/{conv_id}", dependencies=[_convos_write])
+async def delete_conversation_route(request: Request, conv_id: int):
+    _owned_or_404(request, conv_id)
+    delete_conversation(conv_id)
+    return {"status": "deleted"}
+
+
+@app.post("/api/conversations/{conv_id}/messages", dependencies=[_convos_write])
+async def add_message_route(request: Request, conv_id: int, body: MessageBody):
+    _owned_or_404(request, conv_id)
+    if body.role not in ("user", "assistant"):
+        raise HTTPException(422, "role must be 'user' or 'assistant'")
+    if not body.content.strip():
+        raise HTTPException(422, "content must not be empty")
+    return dict(add_message(conv_id, body.role, body.content))
 
 
 @app.get("/", response_class=HTMLResponse)
