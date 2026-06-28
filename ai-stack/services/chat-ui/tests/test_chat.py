@@ -95,6 +95,28 @@ def test_chat_sends_full_history_to_agent(app_env):
     ]
 
 
+def test_history_strips_citation_blocks_from_assistant_turns(app_env):
+    main, c, mp = app_env
+    cap = {}
+    answer = (
+        "Paris is the capital."
+        '\n\n**Verified quotes:**\n- ✓ "Paris is the capital" — p.2'
+        "\n\n---\n**Sources:**\n- [vendor] Doc — p.2 — http://example/doc"
+    )
+    _stub_agent(main, mp, answer=answer, capture=cap)
+    cid = c.post("/api/conversations", json={}).json()["id"]
+    c.post("/api/chat", json={"conversation_id": cid, "content": "q1"})
+
+    # stored/displayed message keeps the full markdown (citations render in the UI)
+    conv = c.get(f"/api/conversations/{cid}").json()
+    assert "**Sources:**" in conv["messages"][1]["content"]
+
+    # but the next turn re-feeds the model only the clean answer
+    c.post("/api/chat", json={"conversation_id": cid, "content": "q2"})
+    sent = [m for m in cap["messages"] if m["role"] == "assistant"][0]["content"]
+    assert sent == "Paris is the capital."
+
+
 def test_chat_honours_explicit_model(app_env):
     main, c, mp = app_env
     cap = {}

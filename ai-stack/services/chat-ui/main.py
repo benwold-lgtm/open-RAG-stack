@@ -37,6 +37,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -605,6 +606,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="chat-ui", docs_url=None, redoc_url=None, lifespan=lifespan)
 
+# Static SPA assets (app.js, styles.css, vendored marked + DOMPurify). The "/" route serves
+# index.html with branding injected; everything else under /static is served verbatim.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 @app.middleware("http")
 async def attach_principal(request: Request, call_next):
@@ -1019,6 +1025,29 @@ def _derive_title(text: str) -> str:
     return " ".join(text.split())[:60] or "New conversation"
 
 
+# ai-agent appends these blocks to its answers (see ai-agent format_citations / format_sources).
+# They're rendering output — URLs, page refs, image links, verbatim quotes — so we keep them in
+# the stored/displayed message but strip them out of the history we re-feed the model as input.
+_CITATION_MARKERS = ("\n\n**Verified quotes:**", "\n\n---\n**Sources:**")
+
+
+def _strip_citation_trailer(content: str) -> str:
+    cut = len(content)
+    for marker in _CITATION_MARKERS:
+        idx = content.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    return content[:cut].rstrip()
+
+
+def _history_for_agent(conv_id: int) -> list[dict]:
+    out = []
+    for m in list_messages(conv_id):
+        text = _strip_citation_trailer(m["content"]) if m["role"] == "assistant" else m["content"]
+        out.append({"role": m["role"], "content": text})
+    return out
+
+
 def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
 
@@ -1036,7 +1065,7 @@ async def chat(request: Request, body: ChatBody):
     if not conv["title"]:  # name a fresh conversation after its first message
         rename_conversation(body.conversation_id, _derive_title(content))
 
-    history = [{"role": m["role"], "content": m["content"]} for m in list_messages(body.conversation_id)]
+    history = _history_for_agent(body.conversation_id)
     model = await resolve_model(body.model)
     try:
         agent_json = await _agent_chat(history, model)
@@ -1070,35 +1099,5 @@ async def models():
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTMLResponse(SHELL)
-
-
-# ── SPA shell (B1 placeholder — full vanilla SPA lands in B6) ────────────────
-SHELL = (
-    r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>__BRAND__</title>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh;
-display:flex;align-items:center;justify-content:center}
-.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.12);padding:2rem 2.4rem;text-align:center;max-width:420px}
-.dot{width:42px;height:42px;border-radius:9px;background:__COLOR__;margin:0 auto 1rem}
-h1{font-size:1.15rem;font-weight:600;margin-bottom:.4rem}
-p{font-size:.85rem;color:#64748b;line-height:1.6}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="dot"></div>
-  <h1>__BRAND__</h1>
-  <p>Service is running. Sign-in and chat arrive in the next milestones.</p>
-</div>
-</body>
-</html>"""
-    .replace("__BRAND__", BRAND_NAME)
-    .replace("__COLOR__", BRAND_PRIMARY_COLOR)
-)
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("__BRAND__", BRAND_NAME).replace("__COLOR__", BRAND_PRIMARY_COLOR))
