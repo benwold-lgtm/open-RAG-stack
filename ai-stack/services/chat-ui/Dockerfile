@@ -15,6 +15,7 @@ COPY ai-stack/services/chat-ui/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ai-stack/services/chat-ui/main.py .
+COPY ai-stack/services/chat-ui/static ./static
 
 # Non-root; /data holds the SQLite DB (mount a volume here).
 RUN useradd -m -u 1000 appuser && mkdir -p /data && chown -R appuser:appuser /app /data

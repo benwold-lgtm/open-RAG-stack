@@ -37,6 +37,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 
@@ -605,6 +606,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="chat-ui", docs_url=None, redoc_url=None, lifespan=lifespan)
 
+# Static SPA assets (app.js, styles.css, vendored marked + DOMPurify). The "/" route serves
+# index.html with branding injected; everything else under /static is served verbatim.
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 @app.middleware("http")
 async def attach_principal(request: Request, call_next):
@@ -1093,35 +1099,5 @@ async def models():
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return HTMLResponse(SHELL)
-
-
-# ── SPA shell (B1 placeholder — full vanilla SPA lands in B6) ────────────────
-SHELL = (
-    r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>__BRAND__</title>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh;
-display:flex;align-items:center;justify-content:center}
-.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.12);padding:2rem 2.4rem;text-align:center;max-width:420px}
-.dot{width:42px;height:42px;border-radius:9px;background:__COLOR__;margin:0 auto 1rem}
-h1{font-size:1.15rem;font-weight:600;margin-bottom:.4rem}
-p{font-size:.85rem;color:#64748b;line-height:1.6}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="dot"></div>
-  <h1>__BRAND__</h1>
-  <p>Service is running. Sign-in and chat arrive in the next milestones.</p>
-</div>
-</body>
-</html>"""
-    .replace("__BRAND__", BRAND_NAME)
-    .replace("__COLOR__", BRAND_PRIMARY_COLOR)
-)
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("__BRAND__", BRAND_NAME).replace("__COLOR__", BRAND_PRIMARY_COLOR))
