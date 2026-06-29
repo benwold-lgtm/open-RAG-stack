@@ -6,6 +6,9 @@ set -euo pipefail
 #   ./rag-query.sh "What is an AI factory reference architecture?"
 
 AI_AGENT_URL="${AI_AGENT_URL:-http://<your-gpu-node-ip>:30081}"
+# Bearer credential for the (optionally) authenticated data plane; unset = send nothing.
+SERVICE_TOKEN="${SERVICE_TOKEN:-}"
+AUTH_HEADER=(); [[ -n "$SERVICE_TOKEN" ]] && AUTH_HEADER=(-H "Authorization: Bearer ${SERVICE_TOKEN}")
 
 CYAN='\033[0;36m'; GREEN='\033[0;32m'; NC='\033[0m'
 
@@ -26,6 +29,7 @@ echo -e "${GREEN}─────────────────────
 
 RESPONSE=$(curl -s -X POST "${AI_AGENT_URL}/v1/chat/completions" \
     -H "Content-Type: application/json" \
+    "${AUTH_HEADER[@]}" \
     -d "$PAYLOAD")
 
 echo "$RESPONSE" | python3 -c "

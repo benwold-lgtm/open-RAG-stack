@@ -30,6 +30,13 @@ spec:
           env:
             - name: INGESTION_URL
               value: {{ .Values.ingestion.url | quote }}
+            # Shared data-plane token forwarded to ingestion. optional:true so open deploys boot.
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.serviceToken.secretName }}
+                  key: SERVICE_TOKEN
+                  optional: true
             {{- if .Values.auth.enabled }}
             - name: ADMIN_USER
               valueFrom:

@@ -15,6 +15,16 @@ vllm:
   baseUrl: ""          # e.g. http://<gpu-node-ip>:30000/v1
   model: ""            # HuggingFace model ID loaded by vllm-server
 
+# Holds the shared SERVICE_TOKEN (and the QDRANT_API_KEY / web-search keys). bootstrap.sh
+# writes SERVICE_TOKEN here; the same value goes into ingestion / chat-ui / rag-admin secrets.
+secretName: ai-agent-secrets
+
+# ── Data-plane auth ───────────────────────────────────────────────────────────
+# This service VERIFIES the shared SERVICE_TOKEN on /v1/chat/completions and /v1/models.
+config:
+  production: true        # ENVIRONMENT=production → fail closed if no token and not anonymous
+  allowAnonymous: false   # true = allow unauthenticated access on a trusted, isolated LAN
+
 qdrant:
   url: "http://qdrant.qdrant.svc.cluster.local:6333"
   secretName: ai-agent-secrets
@@ -71,3 +81,10 @@ webSearch:
 # Deploy ai-stack/charts/reranker first, then set url here to enable it.
 reranker:
   url: ""  # e.g. http://reranker.reranker.svc.cluster.local:8003
+
+# ── Network isolation ─────────────────────────────────────────────────────────
+# Restrict ingress to ai-agent to chat-ui only. Default off so the first deploy works
+# on any CNI; turn on only with Calico/Cilium (flannel does not enforce NetworkPolicy).
+# When on, the NodePort path is blocked too — see the chart's networkpolicy.yaml note.
+networkPolicy:
+  enabled: false

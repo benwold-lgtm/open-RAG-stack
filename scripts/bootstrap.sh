@@ -91,6 +91,12 @@ echo
 info "Creating Kubernetes secrets — input is hidden, press Enter after each value."
 echo
 
+# Shared machine-to-machine data-plane token: ai-agent + ingestion verify it; chat-ui,
+# rag-admin and the helper scripts send it. Generate once, then reuse on re-runs by reading
+# it back from an existing secret so every service ends up with the same value.
+SERVICE_TOKEN="$(kubectl get secret ai-agent-secrets -n ai-agent -o jsonpath='{.data.SERVICE_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+[[ -z "$SERVICE_TOKEN" ]] && SERVICE_TOKEN="$(openssl rand -hex 32)"
+
 if kubectl get secret ai-agent-secrets -n ai-agent &>/dev/null; then
   warn "Secret 'ai-agent-secrets' already exists — skipping"
 else
@@ -98,8 +104,18 @@ else
   prompt_secret "QDRANT_API_KEY (for ai-agent RAG access)" QDRANT_API_KEY_AGENT
   kubectl create secret generic ai-agent-secrets -n ai-agent \
     --from-literal=BRAVE_API_KEY="${WEB_SEARCH_API_KEY}" \
-    --from-literal=QDRANT_API_KEY="${QDRANT_API_KEY_AGENT}"
+    --from-literal=QDRANT_API_KEY="${QDRANT_API_KEY_AGENT}" \
+    --from-literal=SERVICE_TOKEN="${SERVICE_TOKEN}"
   ok "Created secret 'ai-agent-secrets' in namespace ai-agent"
+fi
+
+if kubectl get secret ingestion-secrets -n ingestion &>/dev/null; then
+  warn "Secret 'ingestion-secrets' already exists — skipping"
+else
+  # SERVICE_TOKEN locks down the ingestion data plane (auto-generated, shared with ai-agent).
+  kubectl create secret generic ingestion-secrets -n ingestion \
+    --from-literal=SERVICE_TOKEN="${SERVICE_TOKEN}"
+  ok "Created secret 'ingestion-secrets' in namespace ingestion (SERVICE_TOKEN auto-generated)"
 fi
 
 if kubectl get secret qdrant-secrets -n qdrant &>/dev/null; then
@@ -118,7 +134,8 @@ else
   # needs to stay stable across restarts. If you enable OIDC SSO or a break-glass admin, add
   # OIDC_CLIENT_SECRET / BREAK_GLASS_ADMIN_PASSWORD keys to this secret (see the chat-ui chart).
   kubectl create secret generic chat-ui-secrets -n chat-ui \
-    --from-literal=SESSION_SECRET="$(openssl rand -hex 32)"
+    --from-literal=SESSION_SECRET="$(openssl rand -hex 32)" \
+    --from-literal=SERVICE_TOKEN="${SERVICE_TOKEN}"
   ok "Created secret 'chat-ui-secrets' in namespace chat-ui (SESSION_SECRET auto-generated)"
 fi
 

@@ -260,6 +260,8 @@ If you fork this repo and want the CI to build and push images to your own GHCR 
 
 Documents are grouped into **collections** and tagged with a **vendor**. The agent searches across all collections at query time. There are four ways to get content in.
 
+> **If you set a `SERVICE_TOKEN`** (see [Hardening → Authentication](#authentication)), the ingestion endpoints require it. The `scripts/*.sh` helpers send it automatically once you `export SERVICE_TOKEN=<value>`; for raw `curl` calls below, add `-H "Authorization: Bearer $SERVICE_TOKEN"`. With the data plane left open (no token), the calls work as written.
+
 ### 1. Scrape a single page or crawl a whole site
 
 ```bash
@@ -411,6 +413,10 @@ The **chat UI** authenticates every request. The first account to register becom
 
 The **RAG Admin UI** (port 8005 / NodePort 30085) is unauthenticated by default. To require a login on every page and write/delete action, set `ADMIN_USER` and `ADMIN_PASSWORD` — in `.env` for Docker Compose, or as the `rag-admin-auth` secret with `auth.enabled: true` in the chart. The `/health` probe stays open. This gates the UI; keep network access LAN-scoped regardless.
 
+The **data plane** — `ai-agent` (`/v1/chat/completions`, `/v1/models`) and `ingestion` (all data routes) — is protected by a shared machine-to-machine **`SERVICE_TOKEN`**. chat-ui, rag-admin and the helper scripts send it as `Authorization: Bearer $SERVICE_TOKEN`; ai-agent and ingestion require it on every non-health route. The Helm path **auto-generates one token** in `scripts/bootstrap.sh` and writes the same value into the `ai-agent-secrets`, `ingestion-secrets` and `chat-ui-secrets` secrets (add it to `rag-admin-secrets` yourself if you deploy rag-admin). For Docker Compose the data plane ships **open** (frictionless single-node testing); set `SERVICE_TOKEN` in `.env` (`openssl rand -hex 32`) to require it everywhere.
+
+In Kubernetes (`ENVIRONMENT=production`) ai-agent and ingestion **fail closed** — they refuse to boot with no `SERVICE_TOKEN` configured. To run them open on a trusted, isolated LAN, set **`ALLOW_ANONYMOUS=true`** (`config.allowAnonymous: true` in their charts), which restores the legacy unauthenticated behavior. Two routes always stay open: each service's `/health` probe, and ingestion's page-image route (`/documents/{id}/pages/{page}/image`), which browsers load directly as `<img>` URLs and cannot send a bearer token — gate that one at the network layer.
+
 Before exposing the **chat UI** beyond a trusted LAN:
 
 - **Serve over TLS** (ingress or reverse proxy) and set `cookieSecure: true` (chart) / `COOKIE_SECURE=true` (Compose). Session cookies are `HttpOnly` + `SameSite=Lax`; the Secure flag is the missing piece on plain HTTP. It ships **off** so a bare NodePort works out of the box — turn it on once TLS is in front.
@@ -420,47 +426,21 @@ Before exposing the **chat UI** beyond a trusted LAN:
 
 ### Network isolation (NetworkPolicies)
 
-By default, every pod can reach every other pod in the cluster. For a business deployment, lock down inter-service traffic to only the paths that are needed:
+By default, every pod can reach every other pod in the cluster. The `qdrant`, `ai-agent` and `ingestion` charts ship a `templates/networkpolicy.yaml` that default-denies ingress and allows only the known in-cluster callers (qdrant ⇐ ai-agent + ingestion; ai-agent ⇐ chat-ui; ingestion ⇐ ai-agent + rag-admin). It is **off by default** so a first deploy can't be broken by a CNI you didn't expect. Turn it on per chart:
 
-```bash
-# Deny all ingress by default in each namespace, then allow only required paths.
-# Apply this pattern to each namespace (example for the qdrant namespace):
-kubectl apply -f - <<EOF
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: default-deny-ingress
-  namespace: qdrant
-spec:
-  podSelector: {}
-  policyTypes:
-    - Ingress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-from-ai-agent
-  namespace: qdrant
-spec:
-  podSelector:
-    matchLabels:
-      app: qdrant
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ai-agent
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingestion
-EOF
+```yaml
+# values.yaml (qdrant / ai-agent / ingestion)
+networkPolicy:
+  enabled: true
 ```
 
-Repeat the `default-deny-ingress` pattern for all namespaces (`ai-agent`, `embedding`, `ingestion`, `ai-stack`, `chat-ui`), then add explicit `allow-from-*` policies for each required connection. Refer to the [Architecture](#architecture) diagram for the exact call paths.
+**CNI caveat:** NetworkPolicy is only enforced by a CNI that implements it — **Calico** and **Cilium** do; **flannel does not** (it silently ignores the policy, so you get no isolation). Confirm your CNI before relying on this.
+
+**NodePort caveat:** enabling the policy also blocks the NodePort path for the gated services. Inline page-image citations (the browser loads them from ingestion's `:30083`) and the `scripts/*.sh` helpers (which hit the NodePorts from outside the cluster) will stop working until you add an `allow-from-*` rule for your ingress/source. For other namespaces (`embedding`, `ai-stack`, `chat-ui`), apply the same default-deny + `allow-from-*` pattern by hand; refer to the [Architecture](#architecture) diagram for the exact call paths.
 
 ### Pod security
 
-Add a `securityContext` to each deployment to prevent pods from running as root:
+The first-party services (`chat-ui`, `ai-agent`, `ingestion`, `rag-admin`) and `qdrant` already run non-root with `allowPrivilegeEscalation: false`:
 
 ```yaml
 securityContext:
@@ -469,7 +449,7 @@ securityContext:
   allowPrivilegeEscalation: false
 ```
 
-This can be added to the `spec.template.spec` section of each chart's `templates/deployment.yaml`.
+`vllm-server` stays **root** on purpose — it's the upstream GPU image and needs device access; it now ships `/health` liveness/readiness probes so a wedged model load is restarted. If you add more services, apply the same non-root `securityContext` to their `spec.template.spec`.
 
 ### Secrets at rest
 
@@ -502,6 +482,11 @@ The bootstrap script creates plain Kubernetes Secrets (base64-encoded, not encry
 - Confirm `qdrant-secrets` exists in the `qdrant` namespace: `kubectl get secret qdrant-secrets -n qdrant`
 - If missing, run bootstrap.sh again — it skips existing secrets so re-running is safe.
 
+**401 from ingestion or ai-agent (or chat answers / admin actions fail with 401)**
+- The data plane is token-protected. Confirm the same `SERVICE_TOKEN` is in every relevant secret: `kubectl get secret ai-agent-secrets -n ai-agent ingestion-secrets -n ingestion chat-ui-secrets -n chat-ui -o jsonpath='{..SERVICE_TOKEN}'` should print the **same** base64 value three times. Re-run `bootstrap.sh` (it reuses the existing token) if one is missing.
+- For the helper scripts, export the token first: `export SERVICE_TOKEN=<value>` before running `rag-query.sh` / `ingest-status.sh` / `link-scrape.sh`.
+- `ai-agent`/`ingestion` **refuse to boot** in `ENVIRONMENT=production` with no token: check their logs for the fail-closed warning, set the token, or set `ALLOW_ANONYMOUS=true` for a trusted LAN.
+
 **Chat UI answers fail or hang**
 - Confirm ai-agent is running: `kubectl get pods -n ai-agent`
 - Check `aiAgent.url` in `chat-ui/values.yaml` (or `AI_AGENT_URL` in Compose) points to ai-agent's cluster DNS / service name, not directly to vLLM.
@@ -524,7 +509,11 @@ All secrets are created by `scripts/bootstrap.sh` and stored in Kubernetes — n
 
 | Secret name | Namespace | Keys | Purpose |
 |---|---|---|---|
-| `ai-agent-secrets` | `ai-agent` | `BRAVE_API_KEY`, `QDRANT_API_KEY` | Web search + Qdrant auth for ai-agent |
+| `ai-agent-secrets` | `ai-agent` | `BRAVE_API_KEY`, `QDRANT_API_KEY`, `SERVICE_TOKEN` | Web search + Qdrant auth + data-plane token for ai-agent |
+| `ingestion-secrets` | `ingestion` | `SERVICE_TOKEN` | Data-plane token ingestion verifies |
+| `chat-ui-secrets` | `chat-ui` | `SESSION_SECRET`, `SERVICE_TOKEN` | Session signing + data-plane token chat-ui sends |
 | `qdrant-secrets` | `qdrant` | `QDRANT_API_KEY` | Qdrant API key |
 | `hf-token-secret` | `ai-stack` | `token` | Hugging Face token for vLLM model download |
 | `ghcr-pull-secret` | `ingestion` | Docker config | Pull custom images from ghcr.io |
+
+`SERVICE_TOKEN` is one shared value — `bootstrap.sh` generates it once and writes the same string into all three secrets above. If you deploy `rag-admin`, create `rag-admin-secrets` in its namespace with the same `SERVICE_TOKEN` so its proxied calls to ingestion are authorized.

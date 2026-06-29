@@ -3,13 +3,49 @@ import httpx
 import json
 import asyncio
 import re
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 from openai import AsyncOpenAI
+from rag_auth import RoleScopes, Principal, AUTH_LOCAL
+from rag_auth.authenticator import StaticKeyAuthenticator
+from rag_auth.deps import make_authenticate_request, require_scope, verify_boot_config
 
 app = FastAPI(title="AI Agent Service")
+
+# ── Authentication (shared service token via rag_auth) ────────────────────────
+# ai-agent sits behind the trust boundary; callers (chat-ui, scripts) present a
+# shared SERVICE_TOKEN as a bearer credential. Fail-closed in production unless an
+# operator explicitly opts into anonymous access on a trusted, isolated LAN.
+ENVIRONMENT     = os.getenv("ENVIRONMENT",     "development")
+SERVICE_TOKEN   = os.getenv("SERVICE_TOKEN",   "")
+ALLOW_ANONYMOUS = os.getenv("ALLOW_ANONYMOUS", "false").lower() in ("1", "true", "yes")
+
+CHAT_USE = "chat:use"
+_ROLES = RoleScopes({"admin": {CHAT_USE}, "viewer": {CHAT_USE}})
+_keys: dict[str, Principal] = {}
+if SERVICE_TOKEN:
+    _keys[SERVICE_TOKEN] = Principal(
+        subject="key:service", scopes=_ROLES.scopes_for_role("admin"), auth_method=AUTH_LOCAL
+    )
+_authn = make_authenticate_request(StaticKeyAuthenticator(_keys))
+
+for _w in verify_boot_config(
+    production=ENVIRONMENT == "production",
+    any_auth_enabled=bool(SERVICE_TOKEN),
+    allow_anonymous=ALLOW_ANONYMOUS,
+):
+    print(f"[ai-agent] WARN: {_w}", flush=True)
+
+# Enforce auth only when a token is configured AND anonymous access isn't allowed.
+_AUTH_ACTIVE = bool(SERVICE_TOKEN) and not ALLOW_ANONYMOUS
+
+def _guard(scope: str):
+    return [Depends(_authn), Depends(require_scope(scope))] if _AUTH_ACTIVE else []
+
+# Bearer header for outbound calls to other guarded services (e.g. ingestion FTS).
+_SERVICE_AUTH = {"Authorization": f"Bearer {SERVICE_TOKEN}"} if SERVICE_TOKEN else {}
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 VLLM_BASE_URL  = os.getenv("VLLM_BASE_URL")   # e.g. http://<gpu-node-ip>:30000/v1
@@ -231,6 +267,7 @@ async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
             lex_resp = await client.get(
                 f"{INGESTION_URL}/search/lexical",
                 params={"q": search_query, "limit": top_k},
+                headers=_SERVICE_AUTH,
             )
             if lex_resp.status_code == 200:
                 lexical_hits = lex_resp.json().get("results", [])
@@ -515,7 +552,7 @@ def format_citations(verifications: list[dict]) -> str:
     return "\n\n**Verified quotes:**\n" + "\n".join(lines)
 
 # ── OpenAI-Compatible Endpoint ────────────────────────────────────────────────
-@app.post("/v1/chat/completions")
+@app.post("/v1/chat/completions", dependencies=_guard(CHAT_USE))
 async def chat_completions(request: ChatCompletionRequest):
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
 
@@ -593,7 +630,7 @@ async def health():
     return {"status": "healthy", "vllm_url": VLLM_BASE_URL}
 
 # ── Models Endpoint ───────────────────────────────────────────────────────────
-@app.get("/v1/models")
+@app.get("/v1/models", dependencies=_guard(CHAT_USE))
 async def list_models():
     return {
         "object": "list",

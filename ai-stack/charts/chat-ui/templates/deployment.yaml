@@ -49,6 +49,13 @@ spec:
               value: {{ .Values.config.requireApproval | toString | quote }}
             - name: AI_AGENT_URL
               value: {{ .Values.aiAgent.url | quote }}
+            # Shared data-plane token forwarded to ai-agent. optional:true so open deploys boot.
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: SERVICE_TOKEN
+                  optional: true
             - name: BRAND_NAME
               value: {{ .Values.brand.name | quote }}
             - name: BRAND_PRIMARY_COLOR

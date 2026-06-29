@@ -75,6 +75,18 @@ spec:
               value: {{ .Values.queryRewrite | default "false" | quote }}
             - name: RERANKER_URL
               value: {{ .Values.reranker.url | quote }}
+            - name: ENVIRONMENT
+              value: {{ if .Values.config.production }}"production"{{ else }}"development"{{ end }}
+            - name: ALLOW_ANONYMOUS
+              value: {{ .Values.config.allowAnonymous | toString | quote }}
+            # Shared data-plane token. optional:true so anonymous/trusted-LAN deploys (no token
+            # in the secret) still boot; the service decides whether to enforce.
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: SERVICE_TOKEN
+                  optional: true
           livenessProbe:
             httpGet:
               path: /health

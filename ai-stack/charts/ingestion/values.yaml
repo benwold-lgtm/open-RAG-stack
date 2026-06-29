@@ -11,6 +11,10 @@ service:
   port: 8002
   nodePort: 30083
 
+# Holds the shared SERVICE_TOKEN. bootstrap.sh creates this secret; the same token value
+# goes into the ai-agent / chat-ui / rag-admin secrets so the whole data plane agrees.
+secretName: ingestion-secrets
+
 qdrant:
   url: "http://qdrant.qdrant.svc.cluster.local:6333"
   secretName: qdrant-secrets
@@ -19,6 +23,11 @@ embedding:
   url: "http://embedding.embedding.svc.cluster.local:8001"
 
 config:
+  # ── Data-plane auth ─────────────────────────────────────────────────────────
+  # This service VERIFIES the shared SERVICE_TOKEN on every data route (the page-image
+  # route and /health stay open).
+  production: true        # ENVIRONMENT=production → fail closed if no token and not anonymous
+  allowAnonymous: false   # true = allow unauthenticated access on a trusted, isolated LAN
   chunkSize: "256"      # Phase 6: 256 validated best (page-level hit@5 0.820 vs 0.770 at 512)
   chunkOverlap: "64"
   embeddingDim: "768"
@@ -47,6 +56,13 @@ watchDir:
 
 podSecurityContext:
   fsGroup: 1000  # ensures the PVC at /app/data is writable by UID 1000
+
+# ── Network isolation ─────────────────────────────────────────────────────────
+# Restrict ingress to ingestion to ai-agent + rag-admin. Default off so the first deploy
+# works on any CNI; turn on only with Calico/Cilium (flannel does not enforce it). When on,
+# the NodePort path (page images, helper scripts) is blocked — see networkpolicy.yaml.
+networkPolicy:
+  enabled: false
 
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>

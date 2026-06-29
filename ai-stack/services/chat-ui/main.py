@@ -64,6 +64,9 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() in ("1", "true",
 PRODUCTION = os.environ.get("ENVIRONMENT", "production").lower() == "production"
 LOCAL_LOGIN_ENABLED = os.environ.get("LOCAL_LOGIN_ENABLED", "true").lower() in ("1", "true", "yes")
 AI_AGENT_URL = os.environ.get("AI_AGENT_URL", "http://ai-agent:8000/v1")
+# Shared machine-to-machine token sent to ai-agent (empty when the data plane is open).
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "")
+_SERVICE_AUTH = {"Authorization": f"Bearer {SERVICE_TOKEN}"} if SERVICE_TOKEN else {}
 # Default model for /api/chat when the client doesn't name one; empty = discover from ai-agent.
 DEFAULT_MODEL = os.environ.get("CHAT_DEFAULT_MODEL", "")
 AGENT_TIMEOUT = float(os.environ.get("AI_AGENT_TIMEOUT", "120"))  # LLM answers can be slow
@@ -1019,14 +1022,14 @@ _default_model: Optional[str] = None
 async def _agent_chat(messages: list[dict], model: str) -> dict:
     payload = {"model": model, "messages": messages, "stream": False}
     async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
-        resp = await client.post(f"{AI_AGENT_URL}/chat/completions", json=payload)
+        resp = await client.post(f"{AI_AGENT_URL}/chat/completions", json=payload, headers=_SERVICE_AUTH)
         resp.raise_for_status()
         return resp.json()
 
 
 async def _agent_models() -> dict:
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(f"{AI_AGENT_URL}/models")
+        resp = await client.get(f"{AI_AGENT_URL}/models", headers=_SERVICE_AUTH)
         resp.raise_for_status()
         return resp.json()
 

@@ -1,3 +1,6 @@
+# NOTE: build context must be the REPO ROOT (not this dir) so the shared rag_auth
+# module under ai-stack/lib/ is reachable. docker-compose sets:
+#   build: { context: ., dockerfile: ai-stack/services/ingestion/Dockerfile }
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -5,7 +8,11 @@ WORKDIR /app
 # Playwright browser binaries land here — shared, accessible to non-root user
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-COPY requirements.txt .
+# Shared auth module first (changes rarely → better layer caching).
+COPY ai-stack/lib/rag_auth /tmp/rag_auth
+RUN pip install --no-cache-dir /tmp/rag_auth
+
+COPY ai-stack/services/ingestion/requirements.txt .
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -15,7 +22,7 @@ RUN apt-get update && apt-get install -y \
     && chmod -R 755 /ms-playwright \
     && rm -rf /var/lib/apt/lists/*
 
-COPY main.py .
+COPY ai-stack/services/ingestion/main.py .
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

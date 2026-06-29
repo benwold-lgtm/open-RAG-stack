@@ -7,7 +7,7 @@ import aiosqlite
 import httpx
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Depends
 from pydantic import BaseModel
 from typing import Optional
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
@@ -17,8 +17,47 @@ from qdrant_client.models import (
     FieldCondition, MatchValue
 )
 from tenacity import retry, stop_after_attempt, wait_exponential
+from rag_auth import RoleScopes, Principal, AUTH_LOCAL
+from rag_auth.authenticator import StaticKeyAuthenticator
+from rag_auth.deps import make_authenticate_request, require_scope, verify_boot_config
 
 app = FastAPI(title="Ingestion Service")
+
+# ── Authentication (shared service token via rag_auth) ────────────────────────
+# Callers (rag-admin, ai-agent's lexical search, the helper scripts) present a
+# shared SERVICE_TOKEN as a bearer credential. Reads need ingest:read, writes
+# ingest:write, destructive ops docs:manage. Fail-closed in production unless an
+# operator explicitly opts into anonymous access on a trusted, isolated LAN.
+# NOTE: the page-image route stays open — browsers load those <img> URLs directly
+# (see INGESTION_PUBLIC_URL) and cannot send a bearer token. Gate it at the network.
+ENVIRONMENT     = os.getenv("ENVIRONMENT",     "development")
+SERVICE_TOKEN   = os.getenv("SERVICE_TOKEN",   "")
+ALLOW_ANONYMOUS = os.getenv("ALLOW_ANONYMOUS", "false").lower() in ("1", "true", "yes")
+
+INGEST_READ, INGEST_WRITE, DOCS_MANAGE = "ingest:read", "ingest:write", "docs:manage"
+_ROLES = RoleScopes({
+    "admin":  {INGEST_READ, INGEST_WRITE, DOCS_MANAGE},
+    "viewer": {INGEST_READ},
+})
+_keys: dict[str, Principal] = {}
+if SERVICE_TOKEN:
+    _keys[SERVICE_TOKEN] = Principal(
+        subject="key:service", scopes=_ROLES.scopes_for_role("admin"), auth_method=AUTH_LOCAL
+    )
+_authn = make_authenticate_request(StaticKeyAuthenticator(_keys))
+
+for _w in verify_boot_config(
+    production=ENVIRONMENT == "production",
+    any_auth_enabled=bool(SERVICE_TOKEN),
+    allow_anonymous=ALLOW_ANONYMOUS,
+):
+    print(f"[ingestion] WARN: {_w}", flush=True)
+
+# Enforce auth only when a token is configured AND anonymous access isn't allowed.
+_AUTH_ACTIVE = bool(SERVICE_TOKEN) and not ALLOW_ANONYMOUS
+
+def _guard(scope: str):
+    return [Depends(_authn), Depends(require_scope(scope))] if _AUTH_ACTIVE else []
 
 crawl_semaphore = asyncio.Semaphore(1)
 embed_semaphore = asyncio.Semaphore(2)
@@ -769,7 +808,7 @@ class RenameCollectionRequest(BaseModel):
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 
-@app.post("/ingest/url")
+@app.post("/ingest/url", dependencies=_guard(INGEST_WRITE))
 async def ingest_single(request: IngestRequest, background_tasks: BackgroundTasks):
     doc_id = hashlib.sha256(request.url.encode()).hexdigest()[:16]
     now = datetime.utcnow().isoformat()
@@ -789,7 +828,7 @@ async def ingest_single(request: IngestRequest, background_tasks: BackgroundTask
 
     return {"doc_id": doc_id, "status": "pending", "message": f"Ingestion started for {request.url}"}
 
-@app.post("/ingest/batch")
+@app.post("/ingest/batch", dependencies=_guard(INGEST_WRITE))
 async def ingest_batch(request: BatchIngestRequest, background_tasks: BackgroundTasks):
     results = []
     for doc in request.documents:
@@ -813,7 +852,7 @@ async def ingest_batch(request: BatchIngestRequest, background_tasks: Background
 
     return {"submitted": len(results), "documents": results}
 
-@app.post("/ingest/deep")
+@app.post("/ingest/deep", dependencies=_guard(INGEST_WRITE))
 async def ingest_deep(request: DeepIngestRequest, background_tasks: BackgroundTasks):
     doc_id = hashlib.sha256(request.url.encode()).hexdigest()[:16]
     now = datetime.utcnow().isoformat()
@@ -832,7 +871,7 @@ async def ingest_deep(request: DeepIngestRequest, background_tasks: BackgroundTa
             "message": f"Deep crawl started for {request.url}"}
 
 
-@app.post("/ingest/document")
+@app.post("/ingest/document", dependencies=_guard(INGEST_WRITE))
 async def ingest_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -869,7 +908,7 @@ async def ingest_document(
 
     return {"doc_id": doc_id, "status": "pending", "message": f"Ingestion started for {filename}"}
 
-@app.get("/documents")
+@app.get("/documents", dependencies=_guard(INGEST_READ))
 async def list_documents(
     collection: Optional[str] = None,
     status: Optional[str] = None,
@@ -896,7 +935,7 @@ async def list_documents(
             rows = await cursor.fetchall()
             return {"documents": [dict(row) for row in rows]}
 
-@app.get("/documents/{doc_id}")
+@app.get("/documents/{doc_id}", dependencies=_guard(INGEST_READ))
 async def get_document(doc_id: str):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -936,7 +975,7 @@ async def get_page_image(doc_id: str, page: int):
     from fastapi.responses import StreamingResponse
     return StreamingResponse(io.BytesIO(png), media_type="image/png")
 
-@app.delete("/documents/{doc_id}")
+@app.delete("/documents/{doc_id}", dependencies=_guard(DOCS_MANAGE))
 async def delete_document(doc_id: str):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -964,7 +1003,7 @@ async def delete_document(doc_id: str):
 
     return {"message": f"Document {doc_id} deleted successfully"}
 
-@app.post("/documents/{doc_id}/move")
+@app.post("/documents/{doc_id}/move", dependencies=_guard(INGEST_WRITE))
 async def move_document(doc_id: str, request: MoveDocumentRequest):
     """Move a document to another collection. A 'collection' is a real Qdrant
     collection, so this migrates the doc's points (carrying their vectors — no
@@ -1001,7 +1040,7 @@ async def move_document(doc_id: str, request: MoveDocumentRequest):
 
     return {"message": f"Moved document from '{source}' to '{target}'", "points_moved": moved}
 
-@app.post("/documents/{doc_id}/vendor")
+@app.post("/documents/{doc_id}/vendor", dependencies=_guard(INGEST_WRITE))
 async def set_document_vendor(doc_id: str, request: SetVendorRequest):
     """Update a document's vendor / source tag in place — across its Qdrant point payloads
     (set_payload, no re-embed and point IDs unchanged) plus the SQLite + FTS5 records."""
@@ -1034,7 +1073,7 @@ async def set_document_vendor(doc_id: str, request: SetVendorRequest):
 
     return {"message": f"Vendor updated to '{new_vendor}'", "doc_id": doc_id, "vendor": new_vendor}
 
-@app.get("/collections")
+@app.get("/collections", dependencies=_guard(INGEST_READ))
 async def list_collections():
     client = get_qdrant()
     return {
@@ -1043,12 +1082,12 @@ async def list_collections():
         ]
     }
 
-@app.post("/collections")
+@app.post("/collections", dependencies=_guard(DOCS_MANAGE))
 async def create_collection(request: CollectionCreateRequest):
     await ensure_collection(request.name)
     return {"message": f"Collection '{request.name}' ready"}
 
-@app.post("/collections/{name}/rename")
+@app.post("/collections/{name}/rename", dependencies=_guard(DOCS_MANAGE))
 async def rename_collection(name: str, request: RenameCollectionRequest):
     """Rename a collection. Qdrant has no native rename, so this creates the new
     collection, migrates every point into it (carrying vectors), drops the old
@@ -1079,7 +1118,7 @@ async def rename_collection(name: str, request: RenameCollectionRequest):
 
     return {"message": f"Renamed collection '{name}' to '{new_name}'", "points_moved": moved}
 
-@app.get("/search/lexical")
+@app.get("/search/lexical", dependencies=_guard(INGEST_READ))
 async def lexical_search(
     q: str,
     collection: Optional[str] = None,

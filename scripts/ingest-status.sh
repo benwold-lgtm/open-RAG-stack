@@ -6,6 +6,9 @@ set -euo pipefail
 #   ./ingest-status.sh <doc_id>     (show a specific document)
 
 INGESTION_URL="${INGESTION_URL:-http://<your-gpu-node-ip>:30083}"
+# Bearer credential for the (optionally) authenticated data plane; unset = send nothing.
+SERVICE_TOKEN="${SERVICE_TOKEN:-}"
+AUTH_HEADER=(); [[ -n "$SERVICE_TOKEN" ]] && AUTH_HEADER=(-H "Authorization: Bearer ${SERVICE_TOKEN}")
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -20,7 +23,7 @@ status_color() {
 
 if [[ -n "$1" ]]; then
     # Single document detail
-    RESPONSE=$(curl -s "${INGESTION_URL}/documents/$1")
+    RESPONSE=$(curl -s "${AUTH_HEADER[@]}" "${INGESTION_URL}/documents/$1")
     echo "$RESPONSE" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
@@ -37,7 +40,7 @@ if d.get('error'):
 "
 else
     # List recent documents
-    RESPONSE=$(curl -s "${INGESTION_URL}/documents")
+    RESPONSE=$(curl -s "${AUTH_HEADER[@]}" "${INGESTION_URL}/documents")
     echo ""
     echo -e "${CYAN}Recent ingestion jobs${NC}"
     echo "────────────────────────────────────────────────────────────────────"

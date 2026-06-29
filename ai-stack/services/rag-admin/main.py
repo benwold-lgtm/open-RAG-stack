@@ -7,6 +7,9 @@ from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, Response
 
 INGESTION_URL = os.environ.get("INGESTION_URL", "http://ingestion:8002")
+# Shared machine-to-machine token forwarded to ingestion (empty = data plane is open).
+SERVICE_TOKEN = os.environ.get("SERVICE_TOKEN", "")
+_SERVICE_AUTH = {"Authorization": f"Bearer {SERVICE_TOKEN}"} if SERVICE_TOKEN else {}
 
 # Optional HTTP Basic Auth (Phase 7.P6). Off unless BOTH are set, so existing
 # deploys are unaffected. When on, every route except /health requires the creds.
@@ -759,7 +762,7 @@ async def index():
 @app.get("/collections")
 async def get_collections():
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(f"{INGESTION_URL}/collections")
+        r = await client.get(f"{INGESTION_URL}/collections", headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -767,7 +770,7 @@ async def get_collections():
 async def create_collection(request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.post(f"{INGESTION_URL}/collections", json=body)
+        r = await client.post(f"{INGESTION_URL}/collections", json=body, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -775,7 +778,7 @@ async def create_collection(request: Request):
 async def rename_collection(name: str, request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=300.0) as client:
-        r = await client.post(f"{INGESTION_URL}/collections/{quote(name, safe='')}/rename", json=body)
+        r = await client.post(f"{INGESTION_URL}/collections/{quote(name, safe='')}/rename", json=body, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -783,14 +786,14 @@ async def rename_collection(name: str, request: Request):
 async def get_documents(request: Request):
     params = dict(request.query_params)
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.get(f"{INGESTION_URL}/documents", params=params)
+        r = await client.get(f"{INGESTION_URL}/documents", params=params, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
 @app.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str):
     async with httpx.AsyncClient(timeout=10.0) as client:
-        r = await client.delete(f"{INGESTION_URL}/documents/{doc_id}")
+        r = await client.delete(f"{INGESTION_URL}/documents/{doc_id}", headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -798,14 +801,14 @@ async def delete_document(doc_id: str):
 async def move_document(doc_id: str, request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/move", json=body)
+        r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/move", json=body, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 @app.post("/documents/{doc_id}/vendor")
 async def set_document_vendor(doc_id: str, request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/vendor", json=body)
+        r = await client.post(f"{INGESTION_URL}/documents/{doc_id}/vendor", json=body, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -813,7 +816,7 @@ async def set_document_vendor(doc_id: str, request: Request):
 async def ingest_url(request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(f"{INGESTION_URL}/ingest/url", json=body)
+        r = await client.post(f"{INGESTION_URL}/ingest/url", json=body, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -821,7 +824,7 @@ async def ingest_url(request: Request):
 async def ingest_deep(request: Request):
     body = await request.json()
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(f"{INGESTION_URL}/ingest/deep", json=body)
+        r = await client.post(f"{INGESTION_URL}/ingest/deep", json=body, headers=_SERVICE_AUTH)
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
@@ -844,5 +847,6 @@ async def ingest_document(
                 "access_roles": access_roles,
                 "classification": classification,
             },
+            headers=_SERVICE_AUTH,
         )
         return Response(content=r.content, status_code=r.status_code, media_type="application/json")

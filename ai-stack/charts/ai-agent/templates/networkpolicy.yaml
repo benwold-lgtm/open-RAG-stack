@@ -1,0 +1,26 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny ingress for ai-agent, then allow only chat-ui (its sole in-cluster caller).
+# Disabled by default; only enforced on a Calico/Cilium CNI (flannel ignores it).
+# NOTE: this also blocks the NodePort path, so the rag-query.sh helper (which hits
+# :30081 from outside the cluster) won't reach ai-agent while this is enabled — use it
+# from a pod, or add an allow rule for your ingress/source. See README "Network isolation".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-agent-allow
+  namespace: ai-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: chat-ui
+      ports:
+        - protocol: TCP
+          port: 8000
+{{- end }}

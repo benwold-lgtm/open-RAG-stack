@@ -14,6 +14,14 @@ service:
 ingestion:
   url: "http://ingestion.ingestion.svc.cluster.local:8002"
 
+# ── Data-plane auth ───────────────────────────────────────────────────────────
+# rag-admin proxies every call to ingestion, so it must forward the shared SERVICE_TOKEN.
+# Put the same token bootstrap.sh generated into this secret:
+#   kubectl create secret generic rag-admin-secrets -n rag-admin \
+#     --from-literal=SERVICE_TOKEN=<the token from ai-agent-secrets>
+serviceToken:
+  secretName: rag-admin-secrets
+
 # ── Authentication (single admin credential) ─────────────────────────────────
 # Off by default for backward-compat. Enforced as of Phase 7 (P6). When enabled,
 # the whole UI and all proxied write/delete routes require HTTP Basic Auth.
