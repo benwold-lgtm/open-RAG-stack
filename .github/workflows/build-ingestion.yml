@@ -20,6 +20,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write   # upload Trivy SARIF to code scanning
 
     steps:
       - name: Checkout repository
@@ -42,6 +43,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           # Build context is the REPO ROOT so the Dockerfile can COPY ai-stack/lib/rag_auth.
@@ -50,3 +52,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Scan image and publish SBOM
+        uses: ./.github/actions/scan-image
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          category: ${{ env.IMAGE_NAME }}
+          sbom-name: sbom-ingestion
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
