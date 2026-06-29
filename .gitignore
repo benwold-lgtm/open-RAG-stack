@@ -18,3 +18,7 @@ eval/results*
 # OS
 .DS_Store
 Thumbs.db
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
