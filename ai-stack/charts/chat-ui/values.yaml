@@ -11,6 +11,27 @@ service:
   port: 8006
   nodePort: 30086
 
+# ── Ingress + TLS (optional) ──────────────────────────────────────────────────
+# The documented happy path for exposing the chat UI with HTTPS. Off by default (the
+# NodePort above is enough for LAN testing). Requires an ingress controller in the
+# cluster (e.g. ingress-nginx). When enabled with TLS, also set config.cookieSecure: true
+# below so session cookies are marked Secure.
+#
+# TLS cert options:
+#   - cert-manager: install it + a ClusterIssuer, then set the annotation below and
+#     cert-manager will provision the secret named in tls.secretName automatically.
+#   - manual: create the TLS secret yourself
+#       kubectl create secret tls chat-ui-tls -n chat-ui --cert=tls.crt --key=tls.key
+ingress:
+  enabled: false
+  className: "nginx"
+  host: "chat.example.com"      # the public hostname users will browse to
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod   # uncomment (and remove {} above) for cert-manager
+  tls:
+    enabled: true
+    secretName: chat-ui-tls
+
 aiAgent:
   url: "http://ai-agent.ai-agent.svc.cluster.local:8000/v1"
 

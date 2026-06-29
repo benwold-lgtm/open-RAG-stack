@@ -1,0 +1,51 @@
+name: Bug report
+description: Something isn't working as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security vulnerabilities, do not file an issue** —
+        use private reporting (see SECURITY.md). This project is community-maintained with
+        no SLA; please include enough detail to reproduce.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected vs. what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose (single node)
+        - Kubernetes (Helm)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Logs from the affected service(s). Redact secrets, tokens, and internal IPs.
+      render: shell
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Image tag / commit, plus model and GPU if relevant.
+      placeholder: "e.g. :latest @ commit abc1234, Llama-3.1-8B, RTX 3090"
+    validations:
+      required: true

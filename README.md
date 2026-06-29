@@ -178,12 +178,17 @@ Repeat `nodeSelector` for `embedding`, `ingestion`, `qdrant`, and `chat-ui` char
 
 ### 2. Configure web search (optional)
 
-In `ai-stack/services/ai-agent/main.py`, uncomment your chosen provider in the **Web Search Provider** section. Options:
+Web search is **off by default** (`provider: none`) — RAG over your own documents needs no provider. To enable it, just set the provider; **no code changes are required**:
 
-- **Brave Search** — `BRAVE_API_KEY` env var, set via Kubernetes secret
-- **SearXNG** — self-hosted, no API key required; set `SEARXNG_URL`
-- **Serper** — `SERPER_API_KEY` env var
-- **Tavily** — `TAVILY_API_KEY` env var
+- **Helm** — set `webSearch.provider` in `ai-stack/charts/ai-agent/values.yaml` to one of the options below, and add the matching API key to the `ai-agent-secrets` secret.
+- **Docker Compose** — set `WEB_SEARCH_PROVIDER` (and the key) in the `ai-agent` service environment.
+
+Options (the provider is read from the `WEB_SEARCH_PROVIDER` env var at runtime):
+
+- **SearXNG** — self-hosted, no API key required; set `SEARXNG_URL` (deploy `ai-stack/charts/searxng` first)
+- **Brave Search** — `BRAVE_API_KEY`
+- **Serper** — `SERPER_API_KEY`
+- **Tavily** — `TAVILY_API_KEY`
 
 ### 3. Bootstrap the cluster
 
@@ -249,8 +254,10 @@ Every service should return `200`. If a service returns `000` or nothing, check 
 If you fork this repo and want the CI to build and push images to your own GHCR namespace:
 
 1. Fork to your GitHub account.
-2. Push a commit to `main` — the three `build-*.yml` workflows authenticate with the built-in `GITHUB_TOKEN` (no secret setup required) and push `ghcr.io/<your-username>/open-rag-ai-agent`, `open-rag-embedding`, and `open-rag-ingestion`.
+2. Push a commit to `main` — the `build-*.yml` workflows authenticate with the built-in `GITHUB_TOKEN` (no secret setup required) and push the custom images to `ghcr.io/<your-username>/open-rag-*` (ai-agent, embedding, ingestion, chat-ui, rag-admin, reranker).
 3. Update `image.repository` in each chart's `values.yaml` to point to your GHCR namespace.
+
+Each build also runs a **Trivy** vulnerability scan (results appear in the repo's **Security → Code scanning** tab) and publishes a **CycloneDX SBOM** as a workflow artifact. The scan is report-only — it does not fail the build on base-image CVEs.
 
 **Making packages public (optional but simpler):** After the first CI run, go to each package on your GitHub profile → Change visibility → Public. This allows Kubernetes to pull without a pull secret.
 
@@ -419,7 +426,22 @@ In Kubernetes (`ENVIRONMENT=production`) ai-agent and ingestion **fail closed** 
 
 Before exposing the **chat UI** beyond a trusted LAN:
 
-- **Serve over TLS** (ingress or reverse proxy) and set `cookieSecure: true` (chart) / `COOKIE_SECURE=true` (Compose). Session cookies are `HttpOnly` + `SameSite=Lax`; the Secure flag is the missing piece on plain HTTP. It ships **off** so a bare NodePort works out of the box — turn it on once TLS is in front.
+- **Serve over TLS** (ingress or reverse proxy) and set `cookieSecure: true` (chart) / `COOKIE_SECURE=true` (Compose). Session cookies are `HttpOnly` + `SameSite=Lax`; the Secure flag is the missing piece on plain HTTP. It ships **off** so a bare NodePort works out of the box — turn it on once TLS is in front. The chat-ui chart ships an optional `ingress.yaml`: set `ingress.enabled: true` with your `host` and an `ingressClassName`, and either point `tls.secretName` at a TLS secret you create, or add a `cert-manager.io/cluster-issuer` annotation to have [cert-manager](https://cert-manager.io/) provision it. Example:
+
+  ```yaml
+  # chat-ui values.yaml
+  config:
+    cookieSecure: true
+  ingress:
+    enabled: true
+    className: nginx
+    host: chat.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls:
+      enabled: true
+      secretName: chat-ui-tls
+  ```
 - **Set a strong, persistent `SESSION_SECRET`** (the Helm path auto-generates one into `chat-ui-secrets`; for Compose, generate with `openssl rand -hex 32`). Rotating it invalidates all sessions.
 - **Tighten registration** for a closed user base: leave `REQUIRE_APPROVAL=true` (the default — new accounts wait for an admin), or set `REGISTRATION_ENABLED=false` and create accounts as an admin. With OIDC, set `OIDC_DEFAULT_ROLE=""` to deny users who match no mapped group.
 - The login **rate-limiter is per-process**, which is exact for the default single replica. If you scale chat-ui to multiple replicas, put a shared limiter (e.g. a reverse-proxy or Redis-backed limit) in front — the in-memory counter won't be shared across pods. Responses also carry `Content-Security-Policy`, `X-Frame-Options: DENY`, and `X-Content-Type-Options: nosniff`.
@@ -454,6 +476,29 @@ securityContext:
 ### Secrets at rest
 
 The bootstrap script creates plain Kubernetes Secrets (base64-encoded, not encrypted). If your cluster does not have [encryption at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) enabled, consider using an external secrets manager (Vault, AWS Secrets Manager, Azure Key Vault) via the [External Secrets Operator](https://external-secrets.io/).
+
+---
+
+## Backup & restore
+
+The stack keeps state in three places: **Qdrant** (the vectors), the **chat-ui SQLite DB** (users, conversations, messages), and the **ingestion SQLite DB + files** (the FTS index, document metadata, and uploaded files / page images). Two scripts back these up and restore them for the **Docker Compose** deployment:
+
+```bash
+./scripts/backup.sh                 # -> ./backups/<UTC timestamp>/
+./scripts/backup.sh /mnt/backups    # or a directory you choose
+./scripts/restore.sh ./backups/20260629-220900Z
+```
+
+- **Backup is online and consistent** — it takes a Qdrant snapshot per collection and a SQLite `.backup` of each DB, so you don't need to stop the stack. Run it from the repo root; schedule it with cron for regular backups.
+- **Restore overwrites current data.** It recovers each Qdrant collection from its snapshot and briefly stops chat-ui / ingestion to swap their DB files back in. Take a fresh backup first if unsure.
+- **Secrets are not included.** Back up your `.env` (Compose) or Kubernetes Secrets separately and securely — they hold `SERVICE_TOKEN`, `SESSION_SECRET`, API keys, etc.
+- If Qdrant has an API key set, export `QDRANT_API_KEY` (and `QDRANT_URL` if not `http://localhost:6333`) before running either script.
+
+For a **Kubernetes** deployment, the same primitives apply but the transport differs: use the Qdrant snapshot API (via a port-forward or the NodePort), and `kubectl exec` the SQLite `.backup` out of each pod — or snapshot the PVCs at the storage layer.
+
+### Known limitation: single-writer / single-replica
+
+Both SQLite databases and the default single-replica Qdrant are **single-writer**. Run **one replica** of chat-ui and ingestion — scaling them out would corrupt the SQLite files, and there is no built-in HA / clustering story. This is fine for the target single-node deployment; if you need horizontal scale or high availability, you'd migrate the SQLite stores to a networked database (e.g. Postgres) and run Qdrant in its clustered mode. Regular backups (above) are the recommended safety net.
 
 ---
 
@@ -517,3 +562,11 @@ All secrets are created by `scripts/bootstrap.sh` and stored in Kubernetes — n
 | `ghcr-pull-secret` | `ingestion` | Docker config | Pull custom images from ghcr.io |
 
 `SERVICE_TOKEN` is one shared value — `bootstrap.sh` generates it once and writes the same string into all three secrets above. If you deploy `rag-admin`, create `rag-admin-secrets` in its namespace with the same `SERVICE_TOKEN` so its proxied calls to ingestion are authorized.
+
+---
+
+## Contributing & support
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and tests, and report security issues privately per [SECURITY.md](SECURITY.md).
+
+This is a personal project shared as-is. It's maintained on a **best-effort basis with no SLA or commercial support**, and comes with no warranty (see [LICENSE](LICENSE)). If you run it in production, plan to maintain your own fork.
