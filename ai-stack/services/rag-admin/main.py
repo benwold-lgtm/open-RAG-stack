@@ -5,6 +5,7 @@ import httpx
 from urllib.parse import quote
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, Response
+from prometheus_fastapi_instrumentator import Instrumentator
 
 INGESTION_URL = os.environ.get("INGESTION_URL", "http://ingestion:8002")
 # Shared machine-to-machine token forwarded to ingestion (empty = data plane is open).
@@ -19,11 +20,14 @@ AUTH_ENABLED = bool(ADMIN_USER and ADMIN_PASSWORD)
 
 app = FastAPI(docs_url=None, redoc_url=None)
 
+# Prometheus metrics at GET /metrics — open like /health (request counts/latencies only).
+Instrumentator().instrument(app).expose(app)
+
 
 @app.middleware("http")
 async def _basic_auth(request: Request, call_next):
-    # /health stays open so container/k8s probes never need credentials.
-    if AUTH_ENABLED and request.url.path != "/health":
+    # /health and /metrics stay open so probes/scrapers never need credentials.
+    if AUTH_ENABLED and request.url.path not in ("/health", "/metrics"):
         ok = False
         header = request.headers.get("authorization", "")
         if header.startswith("Basic "):

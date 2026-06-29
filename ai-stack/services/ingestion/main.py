@@ -20,8 +20,13 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from rag_auth import RoleScopes, Principal, AUTH_LOCAL
 from rag_auth.authenticator import StaticKeyAuthenticator
 from rag_auth.deps import make_authenticate_request, require_scope, verify_boot_config
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="Ingestion Service")
+
+# Prometheus metrics at GET /metrics — open like /health (only request counts/latencies, no
+# secrets). Network-gate it the same way as the rest of the data plane.
+Instrumentator().instrument(app).expose(app)
 
 # ── Authentication (shared service token via rag_auth) ────────────────────────
 # Callers (rag-admin, ai-agent's lexical search, the helper scripts) present a

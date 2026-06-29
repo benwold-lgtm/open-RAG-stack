@@ -39,6 +39,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 
 from rag_auth import (
@@ -608,6 +609,11 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="chat-ui", docs_url=None, redoc_url=None, lifespan=lifespan)
+
+# Prometheus metrics at GET /metrics — open like /health (request counts/latencies only).
+# The attach_principal middleware doesn't reject, and auth is enforced per-route, so /metrics
+# is unauthenticated by design. Network-gate it.
+Instrumentator().instrument(app).expose(app)
 
 # Static SPA assets (app.js, styles.css, vendored marked + DOMPurify). The "/" route serves
 # index.html with branding injected; everything else under /static is served verbatim.

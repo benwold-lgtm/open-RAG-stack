@@ -3,4 +3,5 @@ uvicorn[standard]==0.30.6
 httpx==0.27.0
 itsdangerous==2.2.0
 argon2-cffi==23.1.0
+prometheus-fastapi-instrumentator==7.1.0  # 7.x keeps starlette<1.0, compatible with the pinned fastapi
 # rag_auth (shared module) is installed from ai-stack/lib/rag_auth in the Dockerfile.

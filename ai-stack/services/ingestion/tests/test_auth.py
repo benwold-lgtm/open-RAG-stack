@@ -90,3 +90,12 @@ def test_production_without_token_refuses_to_boot(monkeypatch):
 def test_production_anonymous_boots(monkeypatch):
     c = _client(monkeypatch, ENVIRONMENT="production", ALLOW_ANONYMOUS="true")
     assert c.get("/documents").status_code != 401
+
+
+def test_metrics_open_even_when_auth_active(monkeypatch):
+    # /metrics is unauthenticated like /health and the page-image route, even with a token.
+    c = _client(monkeypatch, SERVICE_TOKEN=TOKEN)
+    c.get("/health")                       # generate a request sample
+    r = c.get("/metrics")                  # no Authorization header
+    assert r.status_code == 200
+    assert "http_request" in r.text

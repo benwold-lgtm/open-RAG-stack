@@ -11,8 +11,13 @@ from openai import AsyncOpenAI
 from rag_auth import RoleScopes, Principal, AUTH_LOCAL
 from rag_auth.authenticator import StaticKeyAuthenticator
 from rag_auth.deps import make_authenticate_request, require_scope, verify_boot_config
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="AI Agent Service")
+
+# Prometheus metrics at GET /metrics — open like /health (only request counts/latencies, no
+# secrets). Network-gate it the same way as the rest of the data plane.
+Instrumentator().instrument(app).expose(app)
 
 # ── Authentication (shared service token via rag_auth) ────────────────────────
 # ai-agent sits behind the trust boundary; callers (chat-ui, scripts) present a

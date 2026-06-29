@@ -13,6 +13,11 @@ spec:
     metadata:
       labels:
         app: ai-agent
+      annotations:
+        # Prometheus annotation-based discovery scrapes /metrics on the container port.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
     spec:
       nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
       imagePullSecrets:

@@ -13,6 +13,11 @@ spec:
     metadata:
       labels:
         app: ingestion
+      annotations:
+        # Prometheus annotation-based discovery scrapes /metrics on the container port.
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8002"
     spec:
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
