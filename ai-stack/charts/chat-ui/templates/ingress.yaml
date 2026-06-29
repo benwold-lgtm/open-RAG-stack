@@ -1,0 +1,36 @@
+{{- if .Values.ingress.enabled }}
+# Optional ingress + TLS for the chat UI (the only service meant to face users).
+# Disabled by default — the chart ships a NodePort for quick LAN access. Enable this
+# behind an ingress controller (e.g. ingress-nginx) to get a hostname + HTTPS, and set
+# config.cookieSecure: true so session cookies are marked Secure.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chat-ui
+  namespace: chat-ui
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: chat-ui
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

@@ -424,7 +424,22 @@ In Kubernetes (`ENVIRONMENT=production`) ai-agent and ingestion **fail closed** 
 
 Before exposing the **chat UI** beyond a trusted LAN:
 
-- **Serve over TLS** (ingress or reverse proxy) and set `cookieSecure: true` (chart) / `COOKIE_SECURE=true` (Compose). Session cookies are `HttpOnly` + `SameSite=Lax`; the Secure flag is the missing piece on plain HTTP. It ships **off** so a bare NodePort works out of the box — turn it on once TLS is in front.
+- **Serve over TLS** (ingress or reverse proxy) and set `cookieSecure: true` (chart) / `COOKIE_SECURE=true` (Compose). Session cookies are `HttpOnly` + `SameSite=Lax`; the Secure flag is the missing piece on plain HTTP. It ships **off** so a bare NodePort works out of the box — turn it on once TLS is in front. The chat-ui chart ships an optional `ingress.yaml`: set `ingress.enabled: true` with your `host` and an `ingressClassName`, and either point `tls.secretName` at a TLS secret you create, or add a `cert-manager.io/cluster-issuer` annotation to have [cert-manager](https://cert-manager.io/) provision it. Example:
+
+  ```yaml
+  # chat-ui values.yaml
+  config:
+    cookieSecure: true
+  ingress:
+    enabled: true
+    className: nginx
+    host: chat.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls:
+      enabled: true
+      secretName: chat-ui-tls
+  ```
 - **Set a strong, persistent `SESSION_SECRET`** (the Helm path auto-generates one into `chat-ui-secrets`; for Compose, generate with `openssl rand -hex 32`). Rotating it invalidates all sessions.
 - **Tighten registration** for a closed user base: leave `REQUIRE_APPROVAL=true` (the default — new accounts wait for an admin), or set `REGISTRATION_ENABLED=false` and create accounts as an admin. With OIDC, set `OIDC_DEFAULT_ROLE=""` to deny users who match no mapped group.
 - The login **rate-limiter is per-process**, which is exact for the default single replica. If you scale chat-ui to multiple replicas, put a shared limiter (e.g. a reverse-proxy or Redis-backed limit) in front — the in-memory counter won't be shared across pods. Responses also carry `Content-Security-Policy`, `X-Frame-Options: DENY`, and `X-Content-Type-Options: nosniff`.
