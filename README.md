@@ -477,6 +477,29 @@ The bootstrap script creates plain Kubernetes Secrets (base64-encoded, not encry
 
 ---
 
+## Backup & restore
+
+The stack keeps state in three places: **Qdrant** (the vectors), the **chat-ui SQLite DB** (users, conversations, messages), and the **ingestion SQLite DB + files** (the FTS index, document metadata, and uploaded files / page images). Two scripts back these up and restore them for the **Docker Compose** deployment:
+
+```bash
+./scripts/backup.sh                 # -> ./backups/<UTC timestamp>/
+./scripts/backup.sh /mnt/backups    # or a directory you choose
+./scripts/restore.sh ./backups/20260629-220900Z
+```
+
+- **Backup is online and consistent** — it takes a Qdrant snapshot per collection and a SQLite `.backup` of each DB, so you don't need to stop the stack. Run it from the repo root; schedule it with cron for regular backups.
+- **Restore overwrites current data.** It recovers each Qdrant collection from its snapshot and briefly stops chat-ui / ingestion to swap their DB files back in. Take a fresh backup first if unsure.
+- **Secrets are not included.** Back up your `.env` (Compose) or Kubernetes Secrets separately and securely — they hold `SERVICE_TOKEN`, `SESSION_SECRET`, API keys, etc.
+- If Qdrant has an API key set, export `QDRANT_API_KEY` (and `QDRANT_URL` if not `http://localhost:6333`) before running either script.
+
+For a **Kubernetes** deployment, the same primitives apply but the transport differs: use the Qdrant snapshot API (via a port-forward or the NodePort), and `kubectl exec` the SQLite `.backup` out of each pod — or snapshot the PVCs at the storage layer.
+
+### Known limitation: single-writer / single-replica
+
+Both SQLite databases and the default single-replica Qdrant are **single-writer**. Run **one replica** of chat-ui and ingestion — scaling them out would corrupt the SQLite files, and there is no built-in HA / clustering story. This is fine for the target single-node deployment; if you need horizontal scale or high availability, you'd migrate the SQLite stores to a networked database (e.g. Postgres) and run Qdrant in its clustered mode. Regular backups (above) are the recommended safety net.
+
+---
+
 ## Troubleshooting
 
 **vLLM pod stays in `Pending`**
