@@ -101,6 +101,10 @@ services:
       QDRANT_API_KEY: ""
       EMBEDDING_URL: http://embedding:8001
       DB_PATH: /app/data/ingestion.db
+      # Shared data-plane token. Empty (default) = open, frictionless single-node testing.
+      # Set SERVICE_TOKEN in .env to require it across all services. ENVIRONMENT stays
+      # development here, so an empty token simply means anonymous access (no fail-closed boot).
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       # 256 validated best in Phase 6 (page-level hit@5 0.820 vs 0.770 at 512).
       CHUNK_SIZE: ${CHUNK_SIZE:-256}
       CHUNK_OVERLAP: ${CHUNK_OVERLAP:-64}
@@ -197,6 +201,8 @@ services:
       # net-negative for dense retrieval with nomic. Set "true" to re-enable.
       QUERY_REWRITE: ${QUERY_REWRITE:-false}
       WEB_SEARCH_PROVIDER: "none"
+      # Shared data-plane token (see ingestion above). Empty = open local testing.
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
     ports:
       - "8004:8000"
     depends_on:
@@ -223,6 +229,8 @@ services:
       INGESTION_URL: http://ingestion:8002
       ADMIN_USER: ${ADMIN_USER:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Shared data-plane token forwarded to ingestion (see ingestion above).
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
     ports:
       - "8005:8005"
     depends_on:
@@ -262,6 +270,8 @@ services:
     environment:
       CHAT_UI_DB: /data/chat_ui.db
       AI_AGENT_URL: http://ai-agent:8000/v1
+      # Shared data-plane token forwarded to ai-agent (see ingestion above).
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-}
       # development = relaxed boot for single-node testing. Set CHAT_ENV=production (and a
       # SESSION_SECRET below) for any real / multi-user deployment — boot then fails closed.
       ENVIRONMENT: ${CHAT_ENV:-development}

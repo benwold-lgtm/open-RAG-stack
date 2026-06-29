@@ -125,6 +125,25 @@ spec:
             {{- end }}
           ports:
             - containerPort: {{ .Values.service.port }}
+          # vLLM serves /health once the model is loaded. The model load is slow (minutes),
+          # hence the generous initialDelay/failureThreshold. Container stays root — it's the
+          # upstream GPU image and adding a non-root user is out of scope here.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 60
           volumeMounts:
             - name: data-vol
               mountPath: {{ .Values.model.downloadDir }}

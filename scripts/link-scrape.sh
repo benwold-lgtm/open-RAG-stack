@@ -7,6 +7,9 @@ set -euo pipefail
 #   ./link-scrape.sh <url> --deep           (deep crawl mode)
 
 INGESTION_URL="${INGESTION_URL:-http://<your-gpu-node-ip>:30083}"
+# Bearer credential for the (optionally) authenticated data plane; unset = send nothing.
+SERVICE_TOKEN="${SERVICE_TOKEN:-}"
+AUTH_HEADER=(); [[ -n "$SERVICE_TOKEN" ]] && AUTH_HEADER=(-H "Authorization: Bearer ${SERVICE_TOKEN}")
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -59,6 +62,7 @@ echo ""
 echo -e "${CYAN}Submitting to ${INGESTION_URL}${ENDPOINT}...${NC}"
 RESPONSE=$(curl -s -X POST "${INGESTION_URL}${ENDPOINT}" \
     -H "Content-Type: application/json" \
+    "${AUTH_HEADER[@]}" \
     -d "$PAYLOAD")
 
 DOC_ID=$(echo "$RESPONSE" | grep -o '"doc_id":"[^"]*"' | cut -d'"' -f4 || true)

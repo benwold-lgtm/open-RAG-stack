@@ -30,5 +30,12 @@ security:
   apiKey: ""  # leave blank, we use k8s secret
   secretName: qdrant-secrets
 
+# ── Network isolation ─────────────────────────────────────────────────────────
+# Restrict ingress to qdrant to its in-cluster callers (ai-agent, ingestion). Default
+# off so the first deploy works on any CNI; turn on only with Calico/Cilium. flannel
+# does NOT enforce NetworkPolicy — see the README "Network isolation" section.
+networkPolicy:
+  enabled: false
+
 nodeSelector:
   kubernetes.io/hostname: <your-node-name>

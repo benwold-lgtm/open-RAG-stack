@@ -15,11 +15,17 @@ spec:
         app: qdrant
     spec:
       nodeSelector: {{ toYaml .Values.nodeSelector | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000          # make the /qdrant/storage PVC writable by the non-root user
       containers:
         - name: qdrant
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
             allowPrivilegeEscalation: false
           ports:
             - containerPort: 6333
@@ -32,6 +38,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.security.secretName }}
                   key: QDRANT_API_KEY
+            # Snapshots default to /qdrant/snapshots (image filesystem, root-owned), which the
+            # non-root pod above cannot create — qdrant panics at boot otherwise. Point them into
+            # the storage PVC so fsGroup makes the dir writable. Validated booting as UID 1000.
+            - name: QDRANT__STORAGE__SNAPSHOTS_PATH
+              value: /qdrant/storage/snapshots
           volumeMounts:
             - name: qdrant-storage
               mountPath: /qdrant/storage

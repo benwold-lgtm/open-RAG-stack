@@ -1,0 +1,31 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny ingress for ingestion, then allow its in-cluster callers: ai-agent
+# (lexical search) and rag-admin (the admin proxy). Disabled by default; only enforced
+# on a Calico/Cilium CNI (flannel ignores it).
+# NOTE: this also blocks the NodePort path. Inline page-image citations are loaded by the
+# user's BROWSER directly from :30083, and the ingest-status.sh / link-scrape.sh helpers hit
+# it from outside the cluster — both are blocked while this is enabled. Add an allow rule for
+# your ingress/source if you need them. See README "Network isolation".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingestion-allow
+  namespace: ingestion
+spec:
+  podSelector:
+    matchLabels:
+      app: ingestion
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ai-agent
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rag-admin
+      ports:
+        - protocol: TCP
+          port: 8002
+{{- end }}
