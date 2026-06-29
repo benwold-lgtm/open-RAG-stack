@@ -522,3 +522,11 @@ All secrets are created by `scripts/bootstrap.sh` and stored in Kubernetes — n
 | `ghcr-pull-secret` | `ingestion` | Docker config | Pull custom images from ghcr.io |
 
 `SERVICE_TOKEN` is one shared value — `bootstrap.sh` generates it once and writes the same string into all three secrets above. If you deploy `rag-admin`, create `rag-admin-secrets` in its namespace with the same `SERVICE_TOKEN` so its proxied calls to ingestion are authorized.
+
+---
+
+## Contributing & support
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and tests, and report security issues privately per [SECURITY.md](SECURITY.md).
+
+This is a personal project shared as-is. It's maintained on a **best-effort basis with no SLA or commercial support**, and comes with no warranty (see [LICENSE](LICENSE)). If you run it in production, plan to maintain your own fork.
