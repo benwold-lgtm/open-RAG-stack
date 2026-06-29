@@ -178,12 +178,17 @@ Repeat `nodeSelector` for `embedding`, `ingestion`, `qdrant`, and `chat-ui` char
 
 ### 2. Configure web search (optional)
 
-In `ai-stack/services/ai-agent/main.py`, uncomment your chosen provider in the **Web Search Provider** section. Options:
+Web search is **off by default** (`provider: none`) — RAG over your own documents needs no provider. To enable it, just set the provider; **no code changes are required**:
 
-- **Brave Search** — `BRAVE_API_KEY` env var, set via Kubernetes secret
-- **SearXNG** — self-hosted, no API key required; set `SEARXNG_URL`
-- **Serper** — `SERPER_API_KEY` env var
-- **Tavily** — `TAVILY_API_KEY` env var
+- **Helm** — set `webSearch.provider` in `ai-stack/charts/ai-agent/values.yaml` to one of the options below, and add the matching API key to the `ai-agent-secrets` secret.
+- **Docker Compose** — set `WEB_SEARCH_PROVIDER` (and the key) in the `ai-agent` service environment.
+
+Options (the provider is read from the `WEB_SEARCH_PROVIDER` env var at runtime):
+
+- **SearXNG** — self-hosted, no API key required; set `SEARXNG_URL` (deploy `ai-stack/charts/searxng` first)
+- **Brave Search** — `BRAVE_API_KEY`
+- **Serper** — `SERPER_API_KEY`
+- **Tavily** — `TAVILY_API_KEY`
 
 ### 3. Bootstrap the cluster
 
