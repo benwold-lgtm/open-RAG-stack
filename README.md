@@ -502,6 +502,32 @@ Both SQLite databases and the default single-replica Qdrant are **single-writer*
 
 ---
 
+## Observability (metrics)
+
+The four first-party services — **chat-ui, ai-agent, ingestion, rag-admin** — each expose Prometheus metrics at **`GET /metrics`** (request rate, latency histograms, in-progress requests, status classes). Two of the infrastructure components already ship their own metrics: **vLLM** (`/metrics` on its API port) and **Qdrant** (`/metrics` on `:6333`).
+
+`/metrics` is **unauthenticated**, exactly like `/health` — it exposes only counts and latencies, no secrets. Keep it network-gated the same way as the rest of the data plane (LAN-only / NetworkPolicy).
+
+**Docker Compose** — point Prometheus at the services. If your Prometheus shares the `rag-net` network, scrape by service name; otherwise use the host-mapped ports:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: open-rag-stack
+    metrics_path: /metrics
+    static_configs:
+      # on the rag-net network (container name : container port):
+      - targets: ["ai-agent:8000", "ingestion:8002", "chat-ui:8006", "rag-admin:8005"]
+      # …or from outside the compose network, via the host-mapped ports:
+      # - targets: ["<host-ip>:8004", "<host-ip>:8002", "<host-ip>:3001", "<host-ip>:8005"]
+```
+
+**Kubernetes** — the four charts set `prometheus.io/scrape: "true"` + `prometheus.io/path` + `prometheus.io/port` pod annotations, so a Prometheus configured for annotation-based pod discovery picks them up automatically. (No `ServiceMonitor` is shipped — that assumes the Prometheus Operator, which this stack doesn't bundle.)
+
+A minimal starter dashboard: request rate (`rate(http_requests_total[5m])`), p95 latency (`histogram_quantile(0.95, …)`), and error ratio (4xx/5xx over total). GPU/utilisation metrics come from DCGM-exporter and vLLM separately.
+
+---
+
 ## Troubleshooting
 
 **vLLM pod stays in `Pending`**

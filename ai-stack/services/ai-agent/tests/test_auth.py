@@ -77,3 +77,12 @@ def test_production_anonymous_boots(monkeypatch):
     # Trusted-LAN escape hatch: prod + no token is allowed only with ALLOW_ANONYMOUS.
     c = _client(monkeypatch, ENVIRONMENT="production", ALLOW_ANONYMOUS="true")
     assert c.get("/v1/models").status_code == 200
+
+
+def test_metrics_open_even_when_auth_active(monkeypatch):
+    # /metrics is unauthenticated like /health, even with a token configured.
+    c = _client(monkeypatch, SERVICE_TOKEN=TOKEN)
+    c.get("/health")                       # generate a request sample
+    r = c.get("/metrics")                  # no Authorization header
+    assert r.status_code == 200
+    assert "http_request" in r.text        # Prometheus HTTP metrics are present
