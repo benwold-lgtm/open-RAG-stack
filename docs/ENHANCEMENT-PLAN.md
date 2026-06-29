@@ -150,7 +150,7 @@ POST /rerank
 
 **Known limitations / future work:**
 - **No authentication.** The page is accessible to anyone who can reach port 8005. Access control is currently network-level only (LAN/firewall). This is intentional for the initial internal deployment.
-- **No contributor roles.** All users with LAN access can add or delete content. A future `ADMIN_KEY` env-var gate or Open WebUI JWT validation could restrict writes to authorised users.
+- **No contributor roles.** All users with LAN access can add or delete content. A future `ADMIN_KEY` env-var gate (or adopting the shared `rag_auth` module) could restrict writes to authorised users.
 - **No audit log.** Who ingested what is not tracked. The ingestion service already records `vendor` as a source tag; a `submitted_by` field and log table could be added without changing the API contract.
 
 ---
@@ -175,7 +175,7 @@ POST /rerank
 | 4c.8 | CI build + on-node verification | ✅ Done | Verified 2026-06-24 on the GPU node with a born-digital Dell white paper: status `completed`, 72 chunks, lexical search returns figure-adjacent content, page-image endpoint renders PNGs. Born-digital text path confirmed; OCR-on-scanned-page path not yet exercised (this PDF had a full text layer) — spot-check later with an image-only/scanned PDF. |
 
 **Deliberately deferred (follow-on):**
-- Surfacing the page image + page citation in the chat UI (ai-agent context formatting + open-webui rendering).
+- Surfacing the page image + page citation in the chat UI (ai-agent context formatting + chat-ui rendering).
 - Page-level citations in **lexical** (FTS5) search — the FTS5 schema is fixed at creation; adding a `page` column needs a migration. Vector search carries `page` from day one.
 
 **Superseded rows:** Phase 4.1 (Docling adoption) and 4.7 (`docling>=2.0.0` in requirements) are obsoleted by this phase.
@@ -186,7 +186,7 @@ POST /rerank
 
 > **Context.** Phase 4c put `doc_id`, `page`, and `has_image` on every chunk and exposed `GET /documents/{id}/pages/{n}/image`. The ai-agent retrieval (`run_rag_search`) already builds a `sources` list and appends a markdown "Sources" block to the answer, but it drops the new metadata and shows only `[vendor] title — url`. This phase surfaces **page numbers** and **inline page images** (the actual validated-design diagrams) in the answer so a human can read the source page directly.
 >
-> **Constraint.** Open WebUI is a third-party image — we don't modify its frontend. The only surfaces we control are the assistant message's **markdown content** and the response JSON. So citations are rendered as enriched markdown in the answer (Open WebUI renders it).
+> **Constraint.** The chat front-end renders the assistant message's **markdown content** and the response JSON. So citations are rendered as enriched markdown in the answer (the chat UI renders it).
 >
 > **Browser-reachability decision (Option A).** Page images live on the ingestion service; the user's **browser** must load them, and it can only reach the host-mapped address (e.g. `http://<host-ip>:8002`), not the internal Docker/K8s service name. The agent is told this base via `INGESTION_PUBLIC_URL`, **default empty**. Empty → text-only page citations (graceful degradation, nothing breaks). Set it (in `.env` on the host — never committed, since it contains an internal IP) → inline diagram images appear. Chosen over committing a placeholder so a fresh deploy never renders broken image links.
 
@@ -196,7 +196,7 @@ POST /rerank
 | 4d.2 | Add `INGESTION_PUBLIC_URL` config | ✅ Done | `ai-agent/main.py`; default `""` = text-only citations |
 | 4d.3 | Enriched Sources renderer | ✅ Done | `format_sources()` — dedup by `(doc_id/url, page)`; append `— p.{page}`; emit a "Referenced pages" block with inline `![](…/pages/{n}/image)` only when `has_image` + `page` + `INGESTION_PUBLIC_URL` are all present |
 | 4d.4 | Wire config | ✅ Done | `docker-compose.yml` (`${INGESTION_PUBLIC_URL:-}`), `.env.example` (commented, `<host-ip>` placeholder), ai-agent Helm chart (`ingestion.publicUrl`) |
-| 4d.5 | On-node verification | ✅ Done | Verified 2026-06-24 on the GPU node: agent answer shows `— p.N` citations; only the `has_image:true` page (p.11) emits a "Referenced pages" inline image; `sources[]` carries `doc_id`/`page`/`has_image`; dedup collapses chunks to distinct pages. Final visual confirmation = image renders inline in Open WebUI. (Also fixed: vLLM `gpu-memory-utilization` 0.85→0.70 default — it shares GPU 0 with embedding+reranker; see `VLLM_GPU_UTIL`.) |
+| 4d.5 | On-node verification | ✅ Done | Verified 2026-06-24 on the GPU node: agent answer shows `— p.N` citations; only the `has_image:true` page (p.11) emits a "Referenced pages" inline image; `sources[]` carries `doc_id`/`page`/`has_image`; dedup collapses chunks to distinct pages. Final visual confirmation = image renders inline in the chat UI. (Also fixed: vLLM `gpu-memory-utilization` 0.85→0.70 default — it shares GPU 0 with embedding+reranker; see `VLLM_GPU_UTIL`.) |
 
 **Deferred (separate follow-ons):**
 - Inline `[1]`/`[2]` citation markers tied to individual claims, and the verified-quote-matching layer — both belong to the citations-accuracy work, not this UI-surfacing task.
@@ -384,7 +384,7 @@ Static audit of the Helm charts vs the compose stack (not live-tested — no spa
 | `ingestion` | PyMuPDF + Tesseract OCR + SQLite + Qdrant | 8002 | Document parsing, page-aware chunking, OCR fallback, indexing |
 | `ai-agent` | FastAPI orchestrator | 8000 | RAG pipeline, tool calling |
 | `qdrant` | Qdrant vector DB | 6333 | Vector storage and search |
-| `open-webui` | Open WebUI | 80 | User interface |
+| `chat-ui` | first-party multi-user chat UI | 8006 | User interface |
 | `searxng` | SearXNG (new) | 8080 | Self-hosted web search |
 
 ### Model Storage Requirements

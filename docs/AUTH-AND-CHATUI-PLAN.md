@@ -1,5 +1,7 @@
 # Auth + Chat-UI — Build Plan
 
+> ✅ **Delivered (2026-06-28).** All milestones (A, B1–B8) were built, merged, and validated on the GPU node; Open-WebUI has been removed from the stack. Retained as design history; the live system is the first-party `chat-ui` service.
+
 **Status:** Approved to build (spec-first complete).
 **Last updated:** 2026-06-28.
 **Companion docs:** product spec in [`CHAT-UI-SPEC.md`](CHAT-UI-SPEC.md); phase tracking in

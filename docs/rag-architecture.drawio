@@ -1,216 +1,189 @@
-<mxfile host="Electron">
-  <diagram id="oPAmkSU-_VHqk1f7jEnQ" name="Logical">
-    <mxGraphModel dx="710" dy="898" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-
-        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1;fontColor=#0043CE;" value="Open-RAG-Stack Architecture — Logical View" vertex="1">
-          <mxGeometry height="34" width="900" x="240" y="10" as="geometry" />
-        </mxCell>
-        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=12;fontStyle=2;fontColor=#697689;" value="Identical for Docker Compose and Kubernetes — only the physical layout differs (see Deployment notes)" vertex="1">
-          <mxGeometry height="20" width="900" x="240" y="44" as="geometry" />
-        </mxCell>
-
-        <!-- ===== group boxes ===== -->
-        <mxCell id="g_query" parent="1" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#0043CE;strokeWidth=1;dashed=1;dashPattern=6 4;" value="" vertex="1">
-          <mxGeometry height="210" width="600" x="150" y="140" as="geometry" />
-        </mxCell>
-        <mxCell id="g_query_lbl" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=2;fontSize=11;fontColor=#0043CE;" value="Query &amp; Response Path" vertex="1">
-          <mxGeometry height="18" width="220" x="162" y="146" as="geometry" />
-        </mxCell>
-
-        <mxCell id="g_ingest" parent="1" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#005D5D;strokeWidth=1;dashed=1;dashPattern=6 4;" value="" vertex="1">
-          <mxGeometry height="330" width="600" x="150" y="540" as="geometry" />
-        </mxCell>
-        <mxCell id="g_ingest_lbl" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=2;fontSize=11;fontColor=#005D5D;" value="Ingestion Pipeline" vertex="1">
-          <mxGeometry height="18" width="220" x="162" y="546" as="geometry" />
-        </mxCell>
-
-        <mxCell id="g_infra_lbl" parent="1" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=2;fontSize=11;fontColor=#697689;" value="Shared inference &amp; storage" vertex="1">
-          <mxGeometry height="18" width="220" x="800" y="146" as="geometry" />
-        </mxCell>
-
-        <!-- ===== actors ===== -->
-        <mxCell id="user" parent="1" style="shape=mxgraph.uml.actor;whiteSpace=wrap;html=1;fillColor=#0043CE;strokeColor=#00236B;fontColor=#0043CE;fontStyle=1;fontSize=12;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;" value="User" vertex="1">
-          <mxGeometry height="64" width="48" x="64" y="226" as="geometry" />
-        </mxCell>
-        <mxCell id="engineer" parent="1" style="shape=mxgraph.uml.actor;whiteSpace=wrap;html=1;fillColor=#005D5D;strokeColor=#003D3D;fontColor=#002424;fontStyle=1;fontSize=12;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;" value="AI Engineer" vertex="1">
-          <mxGeometry height="64" width="48" x="64" y="748" as="geometry" />
-        </mxCell>
-
-        <!-- ===== query path nodes ===== -->
-        <mxCell id="owui" parent="1" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" value="&lt;b&gt;Open-WebUI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Chat interface&lt;/font&gt;" vertex="1">
-          <mxGeometry height="60" width="170" x="180" y="225" as="geometry" />
-        </mxCell>
-        <mxCell id="agent" parent="1" style="rounded=1;arcSize=15;fillColor=#0043CE;strokeColor=#00236B;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" value="&lt;b&gt;AI Agent Service&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#A8C7FF&quot; style=&quot;font-size:10px;&quot;&gt;RAG orchestrator · hybrid retrieval&lt;br&gt;RRF · rerank · verified citations&lt;/font&gt;" vertex="1">
-          <mxGeometry height="80" width="190" x="445" y="215" as="geometry" />
-        </mxCell>
-
-        <!-- ===== shared infra (right column, unboxed) ===== -->
-        <mxCell id="vllm" parent="1" style="rounded=1;arcSize=15;fillColor=#0F62FE;strokeColor=#0043CE;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" value="&lt;b&gt;vLLM Server&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#C8DFFF&quot; style=&quot;font-size:10px;&quot;&gt;local LLM inference (GPU)&lt;/font&gt;" vertex="1">
-          <mxGeometry height="58" width="200" x="800" y="165" as="geometry" />
-        </mxCell>
-        <mxCell id="embed" parent="1" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" value="&lt;b&gt;Embedding Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;nomic-embed-text-v1.5&lt;/font&gt;" vertex="1">
-          <mxGeometry height="58" width="200" x="800" y="290" as="geometry" />
-        </mxCell>
-        <mxCell id="rerank" parent="1" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" value="&lt;b&gt;Reranker&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;bge-reranker-v2-m3 · top-20 → top-5&lt;/font&gt;" vertex="1">
-          <mxGeometry height="58" width="200" x="800" y="415" as="geometry" />
-        </mxCell>
-        <mxCell id="qdrant" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;verticalAlign=middle;fontColor=#0043CE;" value="&lt;b&gt;Qdrant&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Vector DB&lt;/font&gt;" vertex="1">
-          <mxGeometry height="92" width="160" x="1090" y="270" as="geometry" />
-        </mxCell>
-
-        <!-- ===== optional web search ===== -->
-        <mxCell id="searxng" parent="1" style="rounded=1;arcSize=15;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#525252;" value="&lt;b&gt;SearXNG&lt;/b&gt; &lt;font style=&quot;font-size:9px;&quot;&gt;(optional)&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;self-hosted web search · off by default&lt;/font&gt;" vertex="1">
-          <mxGeometry height="56" width="200" x="800" y="520" as="geometry" />
-        </mxCell>
-
-        <!-- ===== ingestion path nodes ===== -->
-        <mxCell id="watch" parent="1" style="rounded=1;arcSize=8;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#393939;" value="&lt;b&gt;Watch Folder&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;drop folder · /&amp;lt;vendor&amp;gt;/&lt;/font&gt;" vertex="1">
-          <mxGeometry height="54" width="175" x="180" y="585" as="geometry" />
-        </mxCell>
-        <mxCell id="urls" parent="1" style="rounded=1;arcSize=15;fillColor=#DEFBE6;strokeColor=#198038;strokeWidth=2;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0E5814;" value="&lt;b&gt;Web URLs&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;POST /ingest/url · /ingest/deep&lt;/font&gt;" vertex="1">
-          <mxGeometry height="54" width="175" x="180" y="660" as="geometry" />
-        </mxCell>
-        <mxCell id="ragadmin" parent="1" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" value="&lt;b&gt;RAG Admin UI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;upload · manage · delete&lt;/font&gt;" vertex="1">
-          <mxGeometry height="54" width="175" x="180" y="735" as="geometry" />
-        </mxCell>
-
-        <mxCell id="ingest" parent="1" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" value="&lt;b&gt;Ingestion Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;PyMuPDF + Tesseract OCR&lt;br&gt;recursive chunk 256/64 · page-aware&lt;/font&gt;" vertex="1">
-          <mxGeometry height="80" width="190" x="445" y="600" as="geometry" />
-        </mxCell>
-        <mxCell id="fts5" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=11;verticalAlign=middle;fontColor=#003D3D;" value="&lt;b&gt;SQLite FTS5&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;BM25 lexical index&lt;/font&gt;" vertex="1">
-          <mxGeometry height="82" width="150" x="465" y="745" as="geometry" />
-        </mxCell>
-
-        <!-- ===== query edges (agent hub) ===== -->
-        <mxCell id="e1" edge="1" parent="1" source="user" target="owui" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=2;fontColor=#0043CE;fontStyle=1;fontSize=13;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="①">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e2" edge="1" parent="1" source="owui" target="agent" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=2;fontColor=#0043CE;fontStyle=1;fontSize=13;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="② /v1/chat">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e3" edge="1" parent="1" source="agent" target="embed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="③ embed query">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e4" edge="1" parent="1" source="agent" target="qdrant" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.3;entryX=0.5;entryY=0;" value="④ vector search">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="1170" y="252" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e5" edge="1" parent="1" source="agent" target="ingest" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=0.5;exitY=1;entryX=0.85;entryY=0;" value="⑤ lexical (BM25)">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e6" edge="1" parent="1" source="agent" target="rerank" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.7;entryX=0;entryY=0.5;" value="⑥ RRF pool → rerank">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="700" y="444" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e7" edge="1" parent="1" source="agent" target="vllm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0F62FE;strokeWidth=2;fontColor=#0F62FE;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.15;entryX=0;entryY=0.5;" value="⑦ generate">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="700" y="194" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e8" edge="1" parent="1" source="agent" target="owui" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" value="⑧ answer · sources · citations">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="540" y="170" />
-              <mxPoint x="265" y="170" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- ===== optional web search edge ===== -->
-        <mxCell id="ew" edge="1" parent="1" source="agent" target="searxng" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#697689;strokeWidth=1.5;fontColor=#697689;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=1;exitY=0.85;entryX=0;entryY=0.5;" value="web_search (opt.)">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="710" y="548" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- ===== ingestion edges ===== -->
-        <mxCell id="e9a" edge="1" parent="1" source="watch" target="ingest" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=2;fontColor=#005D5D;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.25;" value="⑨ new files">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e9b" edge="1" parent="1" source="urls" target="ingest" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#198038;strokeWidth=2;fontColor=#198038;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.6;" value="scrape">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e9c" edge="1" parent="1" source="ragadmin" target="ingest" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=2;fontColor=#005D5D;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0.15;entryY=1;" value="upload / delete">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e10" edge="1" parent="1" source="ingest" target="embed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.8;" value="⑩ embed docs">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="700" y="640" />
-              <mxPoint x="700" y="336" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e11" edge="1" parent="1" source="embed" target="qdrant" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.7;entryX=0;entryY=0.75;" value="⑪ upsert vectors">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e12" edge="1" parent="1" source="ingest" target="fts5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" value="⑫ index text">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="emng" edge="1" parent="1" source="engineer" target="ragadmin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" value="manages">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-
-        <!-- ===== legend ===== -->
-        <mxCell id="leg_bg" parent="1" style="rounded=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#C0C0C0;strokeWidth=1;" value="" vertex="1">
-          <mxGeometry height="120" width="300" x="1300" y="160" as="geometry" />
-        </mxCell>
-        <mxCell id="leg_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontStyle=1;fontSize=11;fontColor=#0043CE;" value="Legend" vertex="1">
-          <mxGeometry height="18" width="120" x="1312" y="168" as="geometry" />
-        </mxCell>
-        <mxCell id="leg_a" edge="1" parent="1" style="endArrow=block;endFill=1;strokeColor=#0043CE;strokeWidth=2;" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1312" y="200" as="sourcePoint" />
-            <mxPoint x="1362" y="200" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="leg_al" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#393939;" value="Query &amp; response flow" vertex="1">
-          <mxGeometry height="18" width="180" x="1370" y="191" as="geometry" />
-        </mxCell>
-        <mxCell id="leg_b" edge="1" parent="1" style="endArrow=block;endFill=1;strokeColor=#005D5D;strokeWidth=2;" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1312" y="224" as="sourcePoint" />
-            <mxPoint x="1362" y="224" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="leg_bl" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#393939;" value="Ingestion flow" vertex="1">
-          <mxGeometry height="18" width="180" x="1370" y="215" as="geometry" />
-        </mxCell>
-        <mxCell id="leg_c" edge="1" parent="1" style="endArrow=block;endFill=1;strokeColor=#697689;strokeWidth=1.5;dashed=1;dashPattern=6 3;" value="">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1312" y="248" as="sourcePoint" />
-            <mxPoint x="1362" y="248" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="leg_cl" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#393939;" value="Optional / management" vertex="1">
-          <mxGeometry height="18" width="180" x="1370" y="239" as="geometry" />
-        </mxCell>
-
-        <!-- ===== deployment notes ===== -->
-        <mxCell id="dep_bg" parent="1" style="rounded=1;arcSize=4;fillColor=#F0F7FF;strokeColor=#0043CE;strokeWidth=1.5;" value="" vertex="1">
-          <mxGeometry height="220" width="300" x="1300" y="310" as="geometry" />
-        </mxCell>
-        <mxCell id="dep_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontStyle=1;fontSize=11;fontColor=#0043CE;whiteSpace=wrap;" value="Deployment notes" vertex="1">
-          <mxGeometry height="18" width="270" x="1314" y="318" as="geometry" />
-        </mxCell>
-        <mxCell id="dep_body" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontColor=#393939;whiteSpace=wrap;spacingLeft=2;" value="The logical flow above is the same on both targets. Physical differences:&lt;br&gt;&lt;br&gt;&lt;b&gt;GPU&lt;/b&gt; — Compose runs vLLM + embedding + reranker on one shared GPU (gpu-mem-util 0.70). K8s gives vLLM the GPU exclusively; embedding + reranker run CPU-only (util 0.90).&lt;br&gt;&lt;br&gt;&lt;b&gt;Access&lt;/b&gt; — Compose maps host ports (WebUI :3001, agent :8004, ingestion :8002, qdrant :6333). K8s exposes NodePorts (:30080 / :30081 / :30083 / :30333).&lt;br&gt;&lt;br&gt;&lt;b&gt;SearXNG&lt;/b&gt; web search is optional, off by default." vertex="1">
-          <mxGeometry height="180" width="276" x="1314" y="338" as="geometry" />
-        </mxCell>
-
-      </root>
-    </mxGraphModel>
-  </diagram>
+<mxfile host="65bd71144e">
+    <diagram id="oPAmkSU-_VHqk1f7jEnQ" name="Logical">
+        <mxGraphModel dx="776" dy="383" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" value="Open-RAG-Stack Architecture — Logical View" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=22;fontStyle=1;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="10" width="900" height="34" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="Identical for Docker Compose and Kubernetes — only the physical layout differs (see Deployment notes)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=12;fontStyle=2;fontColor=#697689;" parent="1" vertex="1">
+                    <mxGeometry x="240" y="44" width="900" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="g_query" value="" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#0043CE;strokeWidth=1;dashed=1;dashPattern=6 4;" parent="1" vertex="1">
+                    <mxGeometry x="150" y="140" width="600" height="210" as="geometry"/>
+                </mxCell>
+                <mxCell id="g_query_lbl" value="Query &amp; Response Path" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=2;fontSize=11;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="162" y="146" width="220" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="g_ingest" value="" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#005D5D;strokeWidth=1;dashed=1;dashPattern=6 4;" parent="1" vertex="1">
+                    <mxGeometry x="150" y="540" width="600" height="330" as="geometry"/>
+                </mxCell>
+                <mxCell id="g_ingest_lbl" value="Ingestion Pipeline" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=2;fontSize=11;fontColor=#005D5D;" parent="1" vertex="1">
+                    <mxGeometry x="162" y="546" width="220" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="g_infra_lbl" value="Shared inference &amp; storage" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=2;fontSize=11;fontColor=#697689;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="146" width="220" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="user" value="User" style="shape=mxgraph.uml.actor;whiteSpace=wrap;html=1;fillColor=#0043CE;strokeColor=#00236B;fontColor=#0043CE;fontStyle=1;fontSize=12;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="64" y="226" width="48" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="engineer" value="AI Engineer" style="shape=mxgraph.uml.actor;whiteSpace=wrap;html=1;fillColor=#005D5D;strokeColor=#003D3D;fontColor=#002424;fontStyle=1;fontSize=12;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;" parent="1" vertex="1">
+                    <mxGeometry x="64" y="748" width="48" height="64" as="geometry"/>
+                </mxCell>
+                <mxCell id="owui" value="&lt;b&gt;chat-ui&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;first-party chat · auth · citations&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="225" width="170" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="agent" value="&lt;b&gt;AI Agent Service&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#A8C7FF&quot; style=&quot;font-size:10px;&quot;&gt;RAG orchestrator · hybrid retrieval&lt;br&gt;RRF · rerank · verified citations&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#0043CE;strokeColor=#00236B;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="445" y="215" width="190" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="vllm" value="&lt;b&gt;vLLM Server&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#C8DFFF&quot; style=&quot;font-size:10px;&quot;&gt;local LLM inference (GPU)&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#0F62FE;strokeColor=#0043CE;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="165" width="200" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="embed" value="&lt;b&gt;Embedding Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;nomic-embed-text-v1.5&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="290" width="200" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="rerank" value="&lt;b&gt;Reranker&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;bge-reranker-v2-m3 · top-20 → top-5&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="415" width="200" height="58" as="geometry"/>
+                </mxCell>
+                <mxCell id="qdrant" value="&lt;b&gt;Qdrant&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Vector DB&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="1090" y="270" width="160" height="92" as="geometry"/>
+                </mxCell>
+                <mxCell id="searxng" value="&lt;b&gt;SearXNG&lt;/b&gt; &lt;font style=&quot;font-size:9px;&quot;&gt;(optional)&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;self-hosted web search · off by default&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#525252;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="520" width="200" height="56" as="geometry"/>
+                </mxCell>
+                <mxCell id="watch" value="&lt;b&gt;Watch Folder&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;drop folder · /&amp;lt;vendor&amp;gt;/&lt;/font&gt;" style="rounded=1;arcSize=8;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#393939;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="585" width="175" height="54" as="geometry"/>
+                </mxCell>
+                <mxCell id="urls" value="&lt;b&gt;Web URLs&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;POST /ingest/url · /ingest/deep&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#DEFBE6;strokeColor=#198038;strokeWidth=2;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0E5814;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="660" width="175" height="54" as="geometry"/>
+                </mxCell>
+                <mxCell id="ragadmin" value="&lt;b&gt;RAG Admin UI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;upload · manage · delete&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
+                    <mxGeometry x="180" y="735" width="175" height="54" as="geometry"/>
+                </mxCell>
+                <mxCell id="ingest" value="&lt;b&gt;Ingestion Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;PyMuPDF + Tesseract OCR&lt;br&gt;recursive chunk 256/64 · page-aware&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
+                    <mxGeometry x="445" y="600" width="190" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="fts5" value="&lt;b&gt;SQLite FTS5&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;BM25 lexical index&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=11;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
+                    <mxGeometry x="465" y="745" width="150" height="82" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" value="①" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=2;fontColor=#0043CE;fontStyle=1;fontSize=13;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="user" target="owui" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" value="② /v1/chat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=2;fontColor=#0043CE;fontStyle=1;fontSize=13;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="owui" target="agent" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e3" value="③ embed query" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="agent" target="embed" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" value="④ vector search" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.3;entryX=0.5;entryY=0;" parent="1" source="agent" target="qdrant" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1170" y="252"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e5" value="⑤ lexical (BM25)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=0.5;exitY=1;entryX=0.85;entryY=0;" parent="1" source="agent" target="ingest" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" value="⑥ RRF pool → rerank" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.7;entryX=0;entryY=0.5;" parent="1" source="agent" target="rerank" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="700" y="444"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e7" value="⑦ generate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0F62FE;strokeWidth=2;fontColor=#0F62FE;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.15;entryX=0;entryY=0.5;" parent="1" source="agent" target="vllm" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="700" y="194"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e8" value="⑧ answer · sources · citations" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#0043CE;strokeWidth=1.5;fontColor=#0043CE;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" parent="1" source="agent" target="owui" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="540" y="170"/>
+                            <mxPoint x="265" y="170"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="ew" value="web_search (opt.)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#697689;strokeWidth=1.5;fontColor=#697689;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=1;exitY=0.85;entryX=0;entryY=0.5;" parent="1" source="agent" target="searxng" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="710" y="548"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e9a" value="⑨ new files" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=2;fontColor=#005D5D;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.25;" parent="1" source="watch" target="ingest" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9b" value="scrape" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#198038;strokeWidth=2;fontColor=#198038;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.6;" parent="1" source="urls" target="ingest" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e9c" value="upload / delete" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=2;fontColor=#005D5D;fontStyle=1;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0.15;entryY=1;" parent="1" source="ragadmin" target="ingest" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e10" value="⑩ embed docs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.8;" parent="1" source="ingest" target="embed" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="700" y="640"/>
+                            <mxPoint x="700" y="336"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e11" value="⑪ upsert vectors" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;exitX=1;exitY=0.7;entryX=0;entryY=0.75;" parent="1" source="embed" target="qdrant" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e12" value="⑫ index text" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" parent="1" source="ingest" target="fts5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="emng" value="manages" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="engineer" target="ragadmin" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_bg" value="" style="rounded=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#C0C0C0;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="1300" y="160" width="300" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_title" value="Legend" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontStyle=1;fontSize=11;fontColor=#0043CE;" parent="1" vertex="1">
+                    <mxGeometry x="1312" y="168" width="120" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_a" value="" style="endArrow=block;endFill=1;strokeColor=#0043CE;strokeWidth=2;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1312" y="200" as="sourcePoint"/>
+                        <mxPoint x="1362" y="200" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="leg_al" value="Query &amp; response flow" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#393939;" parent="1" vertex="1">
+                    <mxGeometry x="1370" y="191" width="180" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_b" value="" style="endArrow=block;endFill=1;strokeColor=#005D5D;strokeWidth=2;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1312" y="224" as="sourcePoint"/>
+                        <mxPoint x="1362" y="224" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="leg_bl" value="Ingestion flow" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#393939;" parent="1" vertex="1">
+                    <mxGeometry x="1370" y="215" width="180" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="leg_c" value="" style="endArrow=block;endFill=1;strokeColor=#697689;strokeWidth=1.5;dashed=1;dashPattern=6 3;" parent="1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="1312" y="248" as="sourcePoint"/>
+                        <mxPoint x="1362" y="248" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="leg_cl" value="Optional / management" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=10;fontColor=#393939;" parent="1" vertex="1">
+                    <mxGeometry x="1370" y="239" width="180" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="dep_bg" value="" style="rounded=1;arcSize=4;fillColor=#F0F7FF;strokeColor=#0043CE;strokeWidth=1.5;" parent="1" vertex="1">
+                    <mxGeometry x="1300" y="310" width="300" height="220" as="geometry"/>
+                </mxCell>
+                <mxCell id="dep_title" value="Deployment notes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontStyle=1;fontSize=11;fontColor=#0043CE;whiteSpace=wrap;" parent="1" vertex="1">
+                    <mxGeometry x="1314" y="318" width="270" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="dep_body" value="The logical flow above is the same on both targets. Physical differences:&lt;br&gt;&lt;br&gt;&lt;b&gt;GPU&lt;/b&gt; — Compose runs vLLM + embedding + reranker on one shared GPU (gpu-mem-util 0.70). K8s gives vLLM the GPU exclusively; embedding + reranker run CPU-only (util 0.90).&lt;br&gt;&lt;br&gt;&lt;b&gt;Access&lt;/b&gt; — Compose maps host ports (chat-ui :3001, rag-admin :8005, agent :8004, ingestion :8002, qdrant :6333). K8s exposes NodePorts (:30086 / :30085 / :30081 / :30083 / :30333).&lt;br&gt;&lt;br&gt;&lt;b&gt;SearXNG&lt;/b&gt; web search is optional, off by default." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontColor=#393939;whiteSpace=wrap;spacingLeft=2;" parent="1" vertex="1">
+                    <mxGeometry x="1314" y="338" width="276" height="180" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
 </mxfile>

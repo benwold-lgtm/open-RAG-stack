@@ -1,4 +1,4 @@
-"""chat-ui — first-party multi-user chat service (Open-WebUI replacement).
+"""chat-ui — first-party multi-user chat service.
 
 Built so far:
 * B1 — FastAPI + SQLite + signed server-side sessions, the rag_auth scope seam, a branded
