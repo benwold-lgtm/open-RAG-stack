@@ -1,0 +1,60 @@
+name: Scan image
+description: >
+  Trivy vulnerability scan (results uploaded to GitHub code scanning) plus a
+  CycloneDX SBOM published as a workflow artifact. Report-only — does not fail the build.
+
+inputs:
+  image-ref:
+    description: Image reference to scan, ideally pinned by digest (repo@sha256:...).
+    required: true
+  category:
+    description: Code-scanning category, unique per image so results don't overwrite each other.
+    required: true
+  sbom-name:
+    description: Artifact name for the uploaded SBOM.
+    required: true
+  registry-username:
+    description: Registry username for pulling the image to scan.
+    required: true
+  registry-password:
+    description: Registry password/token for pulling the image to scan.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Trivy vulnerability scan (SARIF)
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        format: sarif
+        output: trivy-results.sarif
+        severity: CRITICAL,HIGH
+        ignore-unfixed: true
+      env:
+        TRIVY_USERNAME: ${{ inputs.registry-username }}
+        TRIVY_PASSWORD: ${{ inputs.registry-password }}
+
+    - name: Upload Trivy results to code scanning
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: trivy-results.sarif
+        category: ${{ inputs.category }}
+
+    - name: Generate SBOM (CycloneDX)
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: ${{ inputs.image-ref }}
+        format: cyclonedx
+        output: sbom.cdx.json
+      env:
+        TRIVY_USERNAME: ${{ inputs.registry-username }}
+        TRIVY_PASSWORD: ${{ inputs.registry-password }}
+
+    - name: Upload SBOM artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.sbom-name }}
+        path: sbom.cdx.json

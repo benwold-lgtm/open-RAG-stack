@@ -254,8 +254,10 @@ Every service should return `200`. If a service returns `000` or nothing, check 
 If you fork this repo and want the CI to build and push images to your own GHCR namespace:
 
 1. Fork to your GitHub account.
-2. Push a commit to `main` — the three `build-*.yml` workflows authenticate with the built-in `GITHUB_TOKEN` (no secret setup required) and push `ghcr.io/<your-username>/open-rag-ai-agent`, `open-rag-embedding`, and `open-rag-ingestion`.
+2. Push a commit to `main` — the `build-*.yml` workflows authenticate with the built-in `GITHUB_TOKEN` (no secret setup required) and push the custom images to `ghcr.io/<your-username>/open-rag-*` (ai-agent, embedding, ingestion, chat-ui, rag-admin, reranker).
 3. Update `image.repository` in each chart's `values.yaml` to point to your GHCR namespace.
+
+Each build also runs a **Trivy** vulnerability scan (results appear in the repo's **Security → Code scanning** tab) and publishes a **CycloneDX SBOM** as a workflow artifact. The scan is report-only — it does not fail the build on base-image CVEs.
 
 **Making packages public (optional but simpler):** After the first CI run, go to each package on your GitHub profile → Change visibility → Public. This allows Kubernetes to pull without a pull secret.
 
