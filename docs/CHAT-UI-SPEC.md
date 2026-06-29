@@ -1,5 +1,7 @@
 # Chat UI — Design Spec (Open-WebUI Replacement)
 
+> ✅ **Delivered (2026-06-28).** This design was implemented in full and Open-WebUI has been removed from the stack. Retained as design history; the live system is the first-party `chat-ui` service.
+
 **Status:** Approved to build. Sequenced build plan in [`AUTH-AND-CHATUI-PLAN.md`](AUTH-AND-CHATUI-PLAN.md).
 **Last Updated:** 2026-06-28
 **Decision:** Build a first-party, multi-user chat UI to replace Open-WebUI.

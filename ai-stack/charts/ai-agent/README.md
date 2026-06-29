@@ -1,6 +1,6 @@
 # ai-agent
 
-FastAPI RAG agent that receives queries from Open-WebUI, retrieves relevant context from Qdrant, and calls vLLM to generate responses. This is the orchestration layer between the chat UI and the rest of the stack.
+FastAPI RAG agent that receives queries from the chat UI, retrieves relevant context from Qdrant, and calls vLLM to generate responses. This is the orchestration layer between the chat UI and the rest of the stack.
 
 ## Key values
 

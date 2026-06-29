@@ -249,7 +249,7 @@ services:
       - "8080:8080"
     networks: [rag-net]
 
-  # ── Chat UI (first-party — replaces Open-WebUI) ───────────────────────────────
+  # ── Chat UI (first-party multi-user) ──────────────────────────────────────────
   # Multi-user chat with local + OIDC sign-in, per-user conversations, and answers
   # with page-level citations. Access at http://<host-ip>:3001
   # Build context is the REPO ROOT so the image can bundle the shared rag_auth module.

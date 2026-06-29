@@ -7,7 +7,7 @@ replicaCount: 1
 revisionHistoryLimit: 3
 
 service:
-  type: NodePort      # internal only, Open-WebUI talks to it inside the cluster
+  type: NodePort      # internal only, the chat UI talks to it inside the cluster
   port: 8000
   nodePort: 30081    # expose on this port on each node
 
