@@ -396,12 +396,17 @@ All scripts live in `scripts/` (except `install.sh`, which is in `deploy/`). The
 | `scripts/prereq-check.sh` | Validate prerequisites before bootstrap (cluster, GPU, storage, egress) |
 | `scripts/bootstrap.sh` | One-time setup: storage classes, namespaces, secrets, then deploys the stack |
 | `deploy/install.sh` | Deploy or upgrade all services via Helm (idempotent; re-run after editing charts/values) |
+| `scripts/download-models.sh` | Pre-download the embedding + reranker models to a local/NFS path (offline / air-gap prep) |
+| `scripts/mirror-images.sh` | Mirror all stack images to an internal registry for air-gapped deploys; prints the helm overrides to apply |
 | `scripts/RAG-startup.sh` | Scale the whole stack back to 1 replica (resume after shutdown) |
 | `scripts/RAG-shutdown.sh` | Scale the whole stack to 0 to free GPU and RAM (storage/secrets untouched) |
 | `scripts/status.sh` | Pod overview across all stack namespaces |
+| `scripts/backup.sh` | Back up Qdrant snapshots, the ingestion SQLite DB, and stored files to a timestamped directory |
+| `scripts/restore.sh` | Restore a backup created by `backup.sh` |
 | `scripts/link-scrape.sh` | Ingest a URL — single page or `--deep` site crawl |
 | `scripts/ingest-status.sh` | List recent ingestion jobs, or inspect one by `doc_id` |
 | `scripts/rag-query.sh` | Send a question to the agent from the CLI |
+| `scripts/migrate-doc-store.py` | One-time: copy already-ingested originals into the document store so old docs get source links (run inside the ingestion container) |
 | `scripts/ai-agent-log.sh` | Tail ai-agent logs |
 | `scripts/embedding-log.sh` | Tail embedding logs |
 | `scripts/ingestion-log.sh` | Tail ingestion logs |
