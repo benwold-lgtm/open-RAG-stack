@@ -483,8 +483,10 @@ class ChatCompletionRequest(BaseModel):
 
 # ── Source / citation formatting ──────────────────────────────────────────────
 def format_sources(sources: list[dict]) -> str:
-    """Render the Sources block with page citations, plus inline page images when
-    an image-bearing PDF page is available and INGESTION_PUBLIC_URL is configured.
+    """Render the Sources block with page citations as clickable links, plus inline page
+    images when an image-bearing PDF page is available and INGESTION_PUBLIC_URL is configured.
+    The title links to the web URL for scraped docs, or to the served original file
+    (/documents/{id}/file) for uploaded/watch-folder docs when INGESTION_PUBLIC_URL is set.
     Deduplicates by (doc_id/url, page) so repeated chunks collapse to one entry."""
     seen = set()
     lines = []
@@ -497,10 +499,18 @@ def format_sources(sources: list[dict]) -> str:
             continue
         seen.add(key)
 
-        cite = f"- [{s.get('vendor', '')}] {s.get('title', '')}"
+        url = s.get("url", "")
+        title = s.get("title") or url or "source"
+        if url.startswith("http"):
+            link = url                                                  # scraped web page
+        elif INGESTION_PUBLIC_URL and doc_id:
+            link = f"{INGESTION_PUBLIC_URL}/documents/{doc_id}/file"     # served original file
+        else:
+            link = ""
+        label = f"[{title}]({link})" if link else title
+        cite = f"- [{s.get('vendor', '')}] {label}"
         if page is not None:
             cite += f" — p.{page}"
-        cite += f" — {s.get('url', '')}"
         lines.append(cite)
 
         if INGESTION_PUBLIC_URL and s.get("has_image") and page is not None and doc_id:

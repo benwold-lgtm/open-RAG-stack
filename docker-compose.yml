@@ -116,10 +116,16 @@ services:
       # Files in <WATCH_HOST_DIR>/<vendor>/ are auto-ingested; subfolder = collection+vendor.
       WATCH_DIR: ${WATCH_DIR:-}
       WATCH_POLL_INTERVAL: ${WATCH_POLL_INTERVAL:-60}
+      # Shared document store. Empty = keep originals in the ingestion volume. Set DOC_STORE
+      # to the container mount (/mnt/docstore below) to save originals as <vendor>/<filename>
+      # and serve them via /documents/{id}/file so chat citations link to the source.
+      DOC_STORE: ${DOC_STORE:-}
     volumes:
       - ingestion_data:/app/data
       - ${MODEL_DIR:-./models}:/models:ro
       - ${WATCH_HOST_DIR:-./rag-watch}:/mnt/watch
+      # Host dir backing DOC_STORE (point DOC_STORE_HOST at an NFS share to persist + browse).
+      - ${DOC_STORE_HOST:-./rag-docs}:/mnt/docstore
     ports:
       - "8002:8002"
     depends_on:
