@@ -31,7 +31,7 @@ echo
 info "Checking required CLI tools..."
 for cmd in kubectl helm; do
   if command -v "$cmd" &>/dev/null; then
-    ok "$cmd found ($(${cmd} version --client --short 2>/dev/null || ${cmd} version 2>/dev/null | head -1))"
+    ok "$cmd found ($(${cmd} version --client 2>/dev/null | head -1))"
   else
     fail "$cmd not found in PATH — install it before running bootstrap.sh"
   fi
@@ -48,7 +48,8 @@ fi
 
 # ── Kubernetes version ─────────────────────────────────────────────────────────
 info "Checking Kubernetes version..."
-K8S_VERSION=$(kubectl version --short 2>/dev/null | grep "Server Version" | awk '{print $3}' || true)
+K8S_VERSION=$(kubectl version -o json 2>/dev/null | \
+  python3 -c "import json,sys; print(json.load(sys.stdin).get('serverVersion',{}).get('gitVersion',''))" 2>/dev/null || true)
 if [[ -n "$K8S_VERSION" ]]; then
   MINOR=$(echo "$K8S_VERSION" | sed 's/v[0-9]*\.\([0-9]*\).*/\1/')
   if [[ "$MINOR" -ge 24 ]]; then
