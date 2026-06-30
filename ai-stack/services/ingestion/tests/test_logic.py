@@ -75,15 +75,31 @@ def test_extract_document_pptx():
 
 
 # ── save_file ─────────────────────────────────────────────────────────────────
-def test_save_file_writes_named_by_doc_id(tmp_path, monkeypatch):
+def test_save_file_legacy_writes_to_files_dir(tmp_path, monkeypatch):
+    # No DOC_STORE -> legacy FILES_DIR/<doc_id>.<ext>, returns None (no relative path).
+    monkeypatch.setattr(main, "DOC_STORE", "")
     monkeypatch.setattr(main, "FILES_DIR", str(tmp_path))
-    path = main.save_file("doc123", "report.PDF", b"%PDF-bytes")
-    assert path.endswith("doc123.pdf")               # extension lower-cased
-    with open(path, "rb") as f:
-        assert f.read() == b"%PDF-bytes"
+    assert main.save_file("doc123", "report.PDF", b"%PDF-bytes") is None
+    assert (tmp_path / "doc123.pdf").read_bytes() == b"%PDF-bytes"
 
 
-def test_save_file_defaults_extension_when_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, "FILES_DIR", str(tmp_path))
-    path = main.save_file("doc999", "noext", b"data")
-    assert path.endswith("doc999.bin")
+def test_save_file_doc_store_by_vendor(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DOC_STORE", str(tmp_path))
+    rel = main.save_file("docabc", "PowerEdge Guide.pdf", b"data", vendor="Dell")
+    assert rel == "Dell/PowerEdge Guide.pdf"
+    assert (tmp_path / "Dell" / "PowerEdge Guide.pdf").read_bytes() == b"data"
+
+
+def test_save_file_collision_suffixes_doc_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DOC_STORE", str(tmp_path))
+    main.save_file("aaaaaaaaaaaaaaaa", "x.pdf", b"first", vendor="hpe")
+    rel = main.save_file("bbbbbbbbbbbbbbbb", "x.pdf", b"second", vendor="hpe")  # same name, diff bytes
+    assert rel == "hpe/x-bbbbbbbb.pdf"
+    assert (tmp_path / "hpe" / "x.pdf").read_bytes() == b"first"
+    assert (tmp_path / "hpe" / "x-bbbbbbbb.pdf").read_bytes() == b"second"
+
+
+def test_save_file_path_traversal_is_contained(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DOC_STORE", str(tmp_path))
+    rel = main.save_file("docx0000", "../../evil.pdf", b"x", vendor="../etc")
+    assert rel == "etc/evil.pdf"                      # basename-only sanitisation

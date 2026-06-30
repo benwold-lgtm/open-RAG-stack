@@ -54,6 +54,19 @@ watchDir:
   mountPath: /mnt/watch
   pollInterval: "60"
 
+# ── Document store ─────────────────────────────────────────────────────────────
+# When enabled, ingestion saves each original upload as <store>/<vendor>/<filename> and
+# serves it at /documents/{id}/file so chat citations link to the source. Prefer an NFS
+# share (shared, browsable, survives the pod); falls back to a node hostPath if nfs.server
+# is empty. The page-image citations also read from here.
+docStore:
+  enabled: false
+  mountPath: /mnt/docstore   # where it mounts in the container (and the DOC_STORE value)
+  nfs:
+    server: ""               # e.g. 192.168.x.x — set to use an NFS share
+    path: ""                 # e.g. /export/rag-docs
+  hostPath: ""               # node path, used only when nfs.server is empty
+
 podSecurityContext:
   fsGroup: 1000  # ensures the PVC at /app/data is writable by UID 1000
 

@@ -62,6 +62,24 @@ def test_extract_tool_call_none_found():
 
 
 # ── source rendering ──────────────────────────────────────────────────────────
+def test_format_sources_links_web_url():
+    out = main.format_sources([{"vendor": "NV", "title": "Page", "url": "https://x.com/a", "doc_id": "d1"}])
+    assert "[Page](https://x.com/a)" in out
+
+
+def test_format_sources_links_uploaded_file(monkeypatch):
+    monkeypatch.setattr(main, "INGESTION_PUBLIC_URL", "http://host:8002")
+    out = main.format_sources([{"vendor": "Dell", "title": "g.pdf", "url": "g.pdf", "doc_id": "abc", "page": 3}])
+    assert "[g.pdf](http://host:8002/documents/abc/file)" in out
+    assert "p.3" in out
+
+
+def test_format_sources_plain_when_no_public_url(monkeypatch):
+    monkeypatch.setattr(main, "INGESTION_PUBLIC_URL", "")
+    out = main.format_sources([{"vendor": "Dell", "title": "g.pdf", "url": "g.pdf", "doc_id": "abc"}])
+    assert "g.pdf" in out and "](http" not in out
+
+
 def test_format_sources_dedups_by_doc_and_page():
     sources = [
         {"doc_id": "d1", "page": 1, "vendor": "V", "title": "T", "url": "u1"},

@@ -33,8 +33,8 @@ Instrumentator().instrument(app).expose(app)
 # shared SERVICE_TOKEN as a bearer credential. Reads need ingest:read, writes
 # ingest:write, destructive ops docs:manage. Fail-closed in production unless an
 # operator explicitly opts into anonymous access on a trusted, isolated LAN.
-# NOTE: the page-image route stays open — browsers load those <img> URLs directly
-# (see INGESTION_PUBLIC_URL) and cannot send a bearer token. Gate it at the network.
+# NOTE: the page-image and document-file routes stay open — browsers load those URLs
+# directly (see INGESTION_PUBLIC_URL) and cannot send a bearer token. Gate at the network.
 ENVIRONMENT     = os.getenv("ENVIRONMENT",     "development")
 SERVICE_TOKEN   = os.getenv("SERVICE_TOKEN",   "")
 ALLOW_ANONYMOUS = os.getenv("ALLOW_ANONYMOUS", "false").lower() in ("1", "true", "yes")
@@ -73,6 +73,10 @@ QDRANT_API_KEY      = os.getenv("QDRANT_API_KEY")
 EMBEDDING_URL       = os.getenv("EMBEDDING_URL",       "http://embedding.embedding.svc.cluster.local:8001")
 DB_PATH             = os.getenv("DB_PATH",             "/app/data/ingestion.db")
 FILES_DIR           = os.getenv("FILES_DIR",           "/app/data/files")
+# Optional shared document store (e.g. an NFS mount). When set, original uploads are saved as
+# <DOC_STORE>/<vendor>/<filename> (browsable by vendor) and served back via /documents/{id}/file
+# so chat citations can link to the source. Empty = keep the legacy FILES_DIR/<doc_id>.<ext>.
+DOC_STORE           = os.getenv("DOC_STORE",           "")
 WATCH_DIR           = os.getenv("WATCH_DIR",           "")
 WATCH_POLL_INTERVAL = int(os.getenv("WATCH_POLL_INTERVAL", "60"))
 CHUNK_SIZE               = int(os.getenv("CHUNK_SIZE",          "512"))
@@ -119,6 +123,12 @@ async def init_db():
         # Migration: add source_type to tables created before this column existed
         try:
             await db.execute("ALTER TABLE documents ADD COLUMN source_type TEXT DEFAULT 'url'")
+        except Exception:
+            pass
+        # Migration: file_path = path of the stored original within DOC_STORE (vendor/filename),
+        # used to serve /documents/{id}/file. NULL for url docs and legacy FILES_DIR-only docs.
+        try:
+            await db.execute("ALTER TABLE documents ADD COLUMN file_path TEXT")
         except Exception:
             pass
         await db.commit()
@@ -327,12 +337,51 @@ async def extract_document(filename: str, content: bytes) -> tuple[str, list[dic
     return filename, segments
 
 # ── File storage ──────────────────────────────────────────────────────────────
-def save_file(doc_id: str, filename: str, content: bytes) -> str:
+def _safe_component(name: str) -> str:
+    """basename only (no path traversal), leading dots stripped."""
+    return os.path.basename((name or "").strip()).lstrip(".")
+
+
+def save_file(doc_id: str, filename: str, content: bytes, vendor: str = "") -> Optional[str]:
+    """Persist the original upload. With DOC_STORE set, write to <store>/<vendor>/<filename>
+    (browsable by vendor) and return that RELATIVE path ('vendor/filename'); on a name clash with
+    a different file, the name is suffixed with a short doc_id. Without DOC_STORE, fall back to
+    the legacy FILES_DIR/<doc_id>.<ext> and return None."""
+    if DOC_STORE:
+        safe_vendor = _safe_component(vendor) or "unknown"
+        safe_name = _safe_component(filename) or f"{doc_id}.bin"
+        os.makedirs(os.path.join(DOC_STORE, safe_vendor), exist_ok=True)
+        target = os.path.join(DOC_STORE, safe_vendor, safe_name)
+        if os.path.exists(target):
+            with open(target, "rb") as existing:
+                if existing.read() != content:                    # same name, different file
+                    stem, ext = os.path.splitext(safe_name)
+                    safe_name = f"{stem}-{doc_id[:8]}{ext}"
+                    target = os.path.join(DOC_STORE, safe_vendor, safe_name)
+        with open(target, "wb") as f:
+            f.write(content)
+        return f"{safe_vendor}/{safe_name}"
+
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
-    path = os.path.join(FILES_DIR, f"{doc_id}.{ext}")
-    with open(path, "wb") as f:
+    with open(os.path.join(FILES_DIR, f"{doc_id}.{ext}"), "wb") as f:
         f.write(content)
-    return path
+    return None
+
+
+async def _locate_source(doc_id: str) -> Optional[str]:
+    """Absolute path to a document's stored original — the DOC_STORE copy if recorded,
+    otherwise the legacy FILES_DIR/<doc_id>.<ext>. None if neither exists."""
+    if DOC_STORE:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute("SELECT file_path FROM documents WHERE id=?", (doc_id,)) as cur:
+                row = await cur.fetchone()
+        if row and row[0]:
+            p = os.path.join(DOC_STORE, row[0])
+            if os.path.exists(p):
+                return p
+    import glob
+    matches = glob.glob(os.path.join(FILES_DIR, f"{doc_id}.*"))
+    return matches[0] if matches else None
 
 # ── Embedding caller ──────────────────────────────────────────────────────────
 async def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -541,7 +590,7 @@ async def ingest_document_task(
                     await db.commit()
                     return
 
-        save_file(doc_id, filename, content)
+        file_path = save_file(doc_id, filename, content, vendor)
 
         chunk_count = await run_pipeline(
             doc_id, filename, title, segments, content_hash,
@@ -552,9 +601,9 @@ async def ingest_document_task(
             await db.execute("""
                 UPDATE documents
                 SET status=?, title=?, content_hash=?, chunk_count=?,
-                    updated_at=?, last_checked=?
+                    file_path=?, updated_at=?, last_checked=?
                 WHERE id=?
-            """, ("completed", title, content_hash, chunk_count, now, now, doc_id))
+            """, ("completed", title, content_hash, chunk_count, file_path, now, now, doc_id))
             await db.commit()
 
     except Exception as e:
@@ -956,11 +1005,9 @@ async def get_document(doc_id: str):
 async def get_page_image(doc_id: str, page: int):
     """Render a single PDF page to PNG on demand from the stored source file.
     Lets the UI surface diagram/image pages so a human can read the design."""
-    import glob
-    matches = glob.glob(os.path.join(FILES_DIR, f"{doc_id}.*"))
-    if not matches:
+    path = await _locate_source(doc_id)
+    if not path:
         raise HTTPException(status_code=404, detail="Source file not found for this document")
-    path = matches[0]
     if not path.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Page images are only available for PDF sources")
 
@@ -979,6 +1026,17 @@ async def get_page_image(doc_id: str, page: int):
     import io
     from fastapi.responses import StreamingResponse
     return StreamingResponse(io.BytesIO(png), media_type="image/png")
+
+# OPEN (no auth): the chat UI links to this so a user can open the cited source. Browsers load it
+# directly and can't send a bearer token — gate it at the network, like the page-image route.
+@app.get("/documents/{doc_id}/file")
+async def get_document_file(doc_id: str):
+    """Serve a document's original uploaded file (PDF/DOCX/PPTX/txt/md) for source citations."""
+    from fastapi.responses import FileResponse
+    path = await _locate_source(doc_id)
+    if not path or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Source file not found for this document")
+    return FileResponse(path, filename=os.path.basename(path), content_disposition_type="inline")
 
 @app.delete("/documents/{doc_id}", dependencies=_guard(DOCS_MANAGE))
 async def delete_document(doc_id: str):
