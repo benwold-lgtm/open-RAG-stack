@@ -233,6 +233,20 @@ def _rrf_merge(
         reverse=True,
     )
 
+# ── Diagram intent ────────────────────────────────────────────────────────────
+_DIAGRAM_INTENT_RE = re.compile(
+    r'\b(diagram|architecture|topology|schematic|figure|illustration|drawing|'
+    r'blueprint|reference\s+design|visual|picture|chart|layout)\b',
+    re.IGNORECASE,
+)
+
+
+def _diagram_intent(query: str) -> bool:
+    """True when the user is asking for a visual (a diagram/architecture/figure). Used to keep
+    the document's own figure pages from being buried by the prose-favoring reranker."""
+    return bool(_DIAGRAM_INTENT_RE.search(query or ""))
+
+
 # ── RAG Search ───────────────────────────────────────────────────────────────
 async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
     search_query = await rewrite_query(query) if QUERY_REWRITE else query
@@ -297,27 +311,43 @@ async def run_rag_search(query: str, top_k: int = 20) -> tuple[str, list[dict]]:
         if len(top_hits) >= top_k:
             break
 
+    # Rerank when available. Request the FULL ordered list (not just the top 5) so the
+    # diagram-intent reserve step below has demoted-but-relevant candidates to promote from.
     if RERANKER_URL and top_hits:
         passages = [payload.get("content", "") for _, payload in top_hits]
         try:
             async with httpx.AsyncClient(timeout=30.0) as rc:
                 r = await rc.post(
                     f"{RERANKER_URL}/rerank",
-                    json={"query": query, "passages": passages, "top_n": 5},
+                    json={"query": query, "passages": passages, "top_n": len(passages)},
                 )
                 r.raise_for_status()
                 ranked = r.json()
-            top_hits = [(item["score"], top_hits[item["index"]][1]) for item in ranked]
+            ordered = [(item["score"], top_hits[item["index"]][1]) for item in ranked]
         except Exception:
-            top_hits = top_hits[:5]
+            ordered = top_hits
     else:
-        top_hits = top_hits[:5]
+        ordered = top_hits
+
+    top_hits = ordered[:5]
+    # Diagram intent: when the user explicitly asks for a diagram/architecture/figure, make sure
+    # the document's own figure surfaces. The cross-encoder reranker favors prose over short
+    # caption units, so if no image-bearing unit made the top 5, reserve the last slot for the
+    # best-ranked caption/diagram page — format_sources renders that page to the user as an image.
+    if _diagram_intent(query):
+        _is_visual = lambda p: p.get("kind") == "caption" or p.get("has_image")
+        if not any(_is_visual(p) for _, p in top_hits):
+            best_visual = next(((s, p) for s, p in ordered if _is_visual(p)), None)
+            if best_visual:
+                top_hits = top_hits[:4] + [best_visual]
 
     parts = []
     sources = []
     for _, payload in top_hits:
+        page = payload.get("page")
+        loc = f" | p.{page}" if page is not None else ""
         parts.append(
-            f"[{payload.get('title', '')} | {payload.get('vendor', '')} | {payload.get('url', '')}]\n"
+            f"[{payload.get('title', '')} | {payload.get('vendor', '')}{loc} | {payload.get('url', '')}]\n"
             f"{payload.get('content', '')}"
         )
         sources.append({
@@ -363,9 +393,11 @@ def extract_tool_calls(content: str) -> list:
             except json.JSONDecodeError:
                 pass
 
-    # Pattern 3: bare JSON {"name": ..., "arguments": {...}}
+    # Pattern 3: bare JSON {"name": ..., "arguments": {...}} — tolerate whitespace and
+    # newlines after the braces so pretty-printed / ```json-fenced tool calls also match
+    # (e.g. Qwen2.5-VL emits multi-line fenced JSON, not compact <tool_call> tags).
     if not tool_calls:
-        match = re.search(r'\{"name":\s*"(\w+)",\s*"arguments":\s*(\{.*?\})\}', content, re.DOTALL)
+        match = re.search(r'\{\s*"name":\s*"(\w+)",\s*"arguments":\s*(\{.*?\})\s*\}', content, re.DOTALL)
         if match:
             try:
                 tool_calls.append({
@@ -403,7 +435,10 @@ When formulating your answer after receiving tool results:
 - Answer ONLY using the information returned by the tools.
 - If the retrieved context does not contain enough information to answer, say so explicitly.
 - Do NOT use your training knowledge to supplement the retrieved context.
-- Do NOT fabricate quotes or specific details not present in the retrieved context."""
+- Do NOT fabricate quotes or specific details not present in the retrieved context.
+- When the context includes a figure or diagram caption (text beginning "Figure N." or "Table N."),
+  the user is automatically shown that page as an image below your answer. Tell them which
+  document and page contains the diagram; never claim you are unable to display images."""
 
     if CITE_VERIFY:
         system_prompt += """

@@ -61,6 +61,26 @@ def test_extract_tool_call_none_found():
     assert main.extract_tool_calls("no tool calls here") == []
 
 
+def test_extract_tool_call_fenced_multiline_json():
+    # Qwen2.5-VL emits a prose preamble + a ```json fence with pretty-printed JSON.
+    c = ('To answer that I will search the docs:\n\n```json\n{\n'
+         '  "name": "rag_search",\n  "arguments": {\n    "query": "Dell vLLM stack"\n  }\n}\n```')
+    calls = main.extract_tool_calls(c)
+    assert calls == [{"name": "rag_search", "arguments": {"query": "Dell vLLM stack"}}]
+
+
+# ── diagram intent ────────────────────────────────────────────────────────────
+def test_diagram_intent_detects_visual_requests():
+    assert main._diagram_intent("Can you show me a diagram of a Dell RAG solution with Redis?")
+    assert main._diagram_intent("what does the reference architecture look like")
+    assert main._diagram_intent("Dell RAG Redis diagram")
+
+
+def test_diagram_intent_false_for_plain_questions():
+    assert not main._diagram_intent("what database does Dell recommend for RAG")
+    assert not main._diagram_intent("")
+
+
 # ── source rendering ──────────────────────────────────────────────────────────
 def test_format_sources_links_web_url():
     out = main.format_sources([{"vendor": "NV", "title": "Page", "url": "https://x.com/a", "doc_id": "d1"}])

@@ -255,8 +255,67 @@ def _ocr_page(page) -> str:
     return pytesseract.image_to_string(img)
 
 
+_CAPTION_RE = re.compile(r'^(figure|fig\.?|table|diagram|exhibit)\s+\d+', re.IGNORECASE)
+
+
+def _captions_from_block_texts(texts: list[str]) -> list[str]:
+    """Pick figure/table captions out of a page's text blocks (in reading order).
+
+    Pure/testable core of _extract_captions: a caption is the document's OWN words describing a
+    figure ("Figure 3. <text>"). A bare label block ("Figure 1.") is joined with the caption
+    sentence that follows it; bare labels with no real wording are dropped."""
+    captions: list[str] = []
+    for idx, t in enumerate(texts):
+        if not _CAPTION_RE.match(t):
+            continue
+        cap = t
+        # A bare label block ("Figure 1." with nothing after the number) sits just above its
+        # caption sentence — join them. A short-but-complete caption is left untouched.
+        label_only = len(_CAPTION_RE.sub("", t, count=1).strip(" .:-")) < 3
+        if label_only and idx + 1 < len(texts) and not _CAPTION_RE.match(texts[idx + 1]):
+            cap = f"{t} {texts[idx + 1]}".strip()
+        cap = cap[:300]
+        remainder = _CAPTION_RE.sub("", cap, count=1).strip(" .:-")
+        if len(remainder) >= 5 and cap not in captions:    # keep only captions with real wording
+            captions.append(cap)
+    return captions
+
+
+def _extract_captions(page) -> list[str]:
+    """Pull figure/table captions from a PDF page as clean, standalone strings, so each can be
+    indexed as its own retrieval unit (instead of buried in a prose chunk) — making a diagram
+    findable by the surrounding context a user would actually search for."""
+    blocks = [b for b in page.get_text("blocks") if len(b) >= 5 and (len(b) < 7 or b[6] == 0)]
+    blocks.sort(key=lambda b: (round(b[1]), round(b[0])))   # reading order: top-down, left-right
+    texts = [" ".join((b[4] or "").split()) for b in blocks]
+    return _captions_from_block_texts(texts)
+
+
+_GENERIC_TITLES = {"untitled", "title", "powerpoint presentation", "document", "presentation"}
+
+
+def _pdf_doc_title(doc) -> str:
+    """The document's own embedded title (PDF metadata), used to enrich figure-caption points.
+
+    A caption often only describes the figure ("Figure 1. High-level diagram of Kubernetes and
+    RAG components") without naming the product the document is about, so it isn't found by a
+    topic query like "Dell RAG Redis diagram". Prefixing the caption with the document's own
+    title — its real, author-written words, not an AI interpretation — restores that topic
+    context. Returns '' when the metadata title is missing or too generic to help."""
+    t = ((doc.metadata or {}).get("title") or "").strip()
+    if len(t) < 5 or t.lower() in _GENERIC_TITLES or t.lower().endswith(".pdf"):
+        return ""
+    return t[:160]
+
+
+def enrich_caption(doc_title: str, caption: str) -> str:
+    """Prefix a caption with the document's title so the figure is findable by the document's
+    topic. No-op when the title is empty (filename-style titles embed poorly — skip them)."""
+    return f"{doc_title}. {caption}" if doc_title else caption
+
+
 def _extract_pdf_pages(content: bytes) -> list[dict]:
-    """Return per-page records [{page, text, has_image}] using PyMuPDF.
+    """Return per-page records [{page, text, has_image, captions}] using PyMuPDF.
 
     Pages with a sparse text layer are rendered and OCR'd so the labels in
     image/diagram pages (device names, IPs, VLANs) become searchable. has_image
@@ -264,6 +323,7 @@ def _extract_pdf_pages(content: bytes) -> list[dict]:
     import fitz  # PyMuPDF
     pages = []
     with fitz.open(stream=content, filetype="pdf") as doc:
+        doc_title = _pdf_doc_title(doc)
         for i, page in enumerate(doc, start=1):
             text = page.get_text() or ""
             has_raster = bool(page.get_images())
@@ -278,6 +338,7 @@ def _extract_pdf_pages(content: bytes) -> list[dict]:
                 "page": i,
                 "text": text,
                 "has_image": has_raster or has_diagram or ocr_applied,
+                "captions": [enrich_caption(doc_title, c) for c in _extract_captions(page)],
             })
     return pages
 
@@ -413,14 +474,21 @@ async def run_pipeline(
     so every chunk carries its source page and image flag."""
     now = datetime.utcnow().isoformat()
 
-    # (chunk_text, page, has_image) — chunk each segment separately to keep page tags
-    chunk_records = [
-        (c, seg.get("page"), seg.get("has_image", False))
+    # (content, page, has_image, kind) — normal text chunks, plus each figure caption as its own
+    # clean retrieval unit ("caption") so a diagram is findable by its surrounding wording.
+    records = [
+        (c, seg.get("page"), seg.get("has_image", False), "text")
         for seg in segments
         for c in chunk_text(seg["text"])
     ]
-    if not chunk_records:
+    records += [
+        (cap, seg.get("page"), True, "caption")
+        for seg in segments
+        for cap in seg.get("captions", [])
+    ]
+    if not records:
         raise ValueError("No chunks generated from content")
+    text_count = sum(1 for r in records if r[3] == "text")
 
     await ensure_collection(collection)
 
@@ -436,15 +504,15 @@ async def run_pipeline(
         )
     )
 
-    total_chunks = len(chunk_records)
+    total_chunks = len(records)
     BATCH_SIZE = 8
     for i in range(0, total_chunks, BATCH_SIZE):
-        batch = chunk_records[i:i + BATCH_SIZE]
+        batch = records[i:i + BATCH_SIZE]
         batch_embeddings = await embed_texts([rec[0] for rec in batch])
 
         points = []
         fts_rows = []
-        for j, ((chunk, page, has_image), embedding) in enumerate(zip(batch, batch_embeddings)):
+        for j, ((content, page, has_image, kind), embedding) in enumerate(zip(batch, batch_embeddings)):
             point_id = int.from_bytes(
                 hashlib.sha256(f"{doc_id}-{i+j}".encode()).digest()[:8],
                 byteorder="big"
@@ -460,9 +528,10 @@ async def run_pipeline(
                     "vendor":         vendor,
                     "chunk_index":    i+j,
                     "total_chunks":   total_chunks,
-                    "content":        chunk,
+                    "content":        content,
                     "page":           page,
                     "has_image":      has_image,
+                    "kind":           kind,
                     "access_roles":   access_roles,
                     "classification": classification,
                     "source_type":    source_type,
@@ -470,7 +539,7 @@ async def run_pipeline(
                     "content_hash":   content_hash,
                 }
             ))
-            fts_rows.append((str(point_id), collection, source, chunk, title, vendor, doc_id))
+            fts_rows.append((str(point_id), collection, source, content, title, vendor, doc_id))
         client.upsert(collection_name=collection, points=points)
 
         async with aiosqlite.connect(DB_PATH) as db:
@@ -483,7 +552,7 @@ async def run_pipeline(
 
         await asyncio.sleep(0.1)
 
-    return total_chunks
+    return text_count
 
 # ── URL ingestion task ────────────────────────────────────────────────────────
 async def ingest_url_task(

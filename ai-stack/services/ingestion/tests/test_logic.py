@@ -103,3 +103,71 @@ def test_save_file_path_traversal_is_contained(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DOC_STORE", str(tmp_path))
     rel = main.save_file("docx0000", "../../evil.pdf", b"x", vendor="../etc")
     assert rel == "etc/evil.pdf"                      # basename-only sanitisation
+
+
+# ── figure-caption extraction (isolated, document-native) ─────────────────────
+def test_captions_joins_split_label_and_sentence():
+    # PyMuPDF often emits the label ("Figure 1.") and its caption sentence as separate blocks.
+    texts = ["Figure 1.",
+             "High-level diagram of Kubernetes and RAG components with Dell infrastructure",
+             "Dell AI Factory", "The Dell AI Factory platform is partnered with vendors."]
+    assert main._captions_from_block_texts(texts) == [
+        "Figure 1. High-level diagram of Kubernetes and RAG components with Dell infrastructure"]
+
+
+def test_captions_inline_single_block():
+    assert main._captions_from_block_texts(["Figure 2. Reference architecture overview"]) == [
+        "Figure 2. Reference architecture overview"]
+
+
+def test_captions_table_and_dedup():
+    texts = ["Table 1. Comparison of options", "Table 1. Comparison of options", "body text"]
+    assert main._captions_from_block_texts(texts) == ["Table 1. Comparison of options"]
+
+
+def test_captions_drops_bare_label_without_wording():
+    # "Figure 3." has no caption sentence (the next block is itself a caption) -> dropped.
+    assert main._captions_from_block_texts(["Figure 3.", "Figure 4. Real caption text"]) == [
+        "Figure 4. Real caption text"]
+
+
+def test_captions_short_complete_caption_not_joined_with_prose():
+    # A short but complete caption must NOT absorb the following prose block.
+    texts = ["Figure 5. Topology", "This paragraph is unrelated prose."]
+    assert main._captions_from_block_texts(texts) == ["Figure 5. Topology"]
+
+
+def test_captions_none_in_prose():
+    assert main._captions_from_block_texts(["Just some prose about RAG and Dell servers."]) == []
+
+
+# ── caption title-enrichment (findable by the document's topic) ───────────────
+def test_enrich_caption_prefixes_document_title():
+    # The document's own title carries the topic ("Redis") the bare caption lacks.
+    assert main.enrich_caption(
+        "Bring Real-Time RAG into Production with Dell AI Factory and Redis",
+        "Figure 1. High-level diagram of Kubernetes and RAG components",
+    ) == ("Bring Real-Time RAG into Production with Dell AI Factory and Redis. "
+          "Figure 1. High-level diagram of Kubernetes and RAG components")
+
+
+def test_enrich_caption_noop_without_title():
+    assert main.enrich_caption("", "Figure 2. Reference architecture") == "Figure 2. Reference architecture"
+
+
+class _Doc:
+    def __init__(self, title):
+        self.metadata = {"title": title}
+
+
+def test_pdf_doc_title_keeps_real_title():
+    assert main._pdf_doc_title(_Doc("Dell AI Factory with Redis Reference Design")) == \
+        "Dell AI Factory with Redis Reference Design"
+
+
+def test_pdf_doc_title_drops_generic_and_filename_like():
+    assert main._pdf_doc_title(_Doc("untitled")) == ""
+    assert main._pdf_doc_title(_Doc("PowerPoint Presentation")) == ""
+    assert main._pdf_doc_title(_Doc("h20163-genAI-Redis-RAG.drd.pdf")) == ""
+    assert main._pdf_doc_title(_Doc("")) == ""
+    assert main._pdf_doc_title(_Doc(None)) == ""
