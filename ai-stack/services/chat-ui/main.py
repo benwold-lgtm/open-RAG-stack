@@ -862,6 +862,9 @@ async def auth_config():
         "local_login": LOCAL_LOGIN_ENABLED,
         "registration_enabled": REGISTRATION_ENABLED and LOCAL_LOGIN_ENABLED,
         "oidc": {"enabled": oidc_configured(), "login_path": "/api/auth/oidc/login"},
+        # Whether ai-agent has a web-search provider configured — the SPA only shows the
+        # per-conversation "Search the web" toggle when this is true.
+        "web_search": bool((await _agent_capabilities()).get("web_search", False)),
     }
 
 
@@ -1020,13 +1023,14 @@ class ChatBody(BaseModel):
     conversation_id: int
     content: str
     model: Optional[str] = None
+    web_search: bool = False   # per-conversation opt-in; forwarded to ai-agent (default grounded)
 
 
 _default_model: Optional[str] = None
 
 
-async def _agent_chat(messages: list[dict], model: str) -> dict:
-    payload = {"model": model, "messages": messages, "stream": False}
+async def _agent_chat(messages: list[dict], model: str, web_search: bool = False) -> dict:
+    payload = {"model": model, "messages": messages, "stream": False, "web_search": web_search}
     async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
         resp = await client.post(f"{AI_AGENT_URL}/chat/completions", json=payload, headers=_SERVICE_AUTH)
         resp.raise_for_status()
@@ -1038,6 +1042,18 @@ async def _agent_models() -> dict:
         resp = await client.get(f"{AI_AGENT_URL}/models", headers=_SERVICE_AUTH)
         resp.raise_for_status()
         return resp.json()
+
+
+async def _agent_capabilities() -> dict:
+    """ai-agent feature flags (e.g. whether web search has a configured provider). Best-effort:
+    returns {} on any error so the config path never hard-depends on ai-agent being reachable."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{AI_AGENT_URL}/capabilities", headers=_SERVICE_AUTH)
+            resp.raise_for_status()
+            return resp.json()
+    except Exception:
+        return {}
 
 
 async def resolve_model(provided: Optional[str]) -> str:
@@ -1101,7 +1117,7 @@ async def chat(request: Request, body: ChatBody):
     history = _history_for_agent(body.conversation_id)
     model = await resolve_model(body.model)
     try:
-        agent_json = await _agent_chat(history, model)
+        agent_json = await _agent_chat(history, model, web_search=body.web_search)
         answer = agent_json["choices"][0]["message"]["content"]
     except httpx.HTTPError:
         raise HTTPException(502, "The AI service is unavailable")

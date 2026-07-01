@@ -11,6 +11,7 @@ const state = {
   convos: [],        // sidebar list
   activeId: null,    // open conversation id
   sending: false,
+  webByConv: {},     // per-conversation "Search the web" toggle (client-side, this session)
 };
 
 const can = (scope) => state.me && state.me.scopes.includes(scope);
@@ -226,16 +227,27 @@ async function openConversation(id) {
 
 function renderComposer() {
   const pane = document.getElementById("mainPane");
-  if (pane.querySelector(".composer")) return;
-  const bar = document.createElement("div");
-  bar.className = "composer";
-  bar.innerHTML = `<textarea id="input" rows="1" placeholder="Ask a question…"></textarea>
+  let bar = pane.querySelector(".composer");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.className = "composer";
+    // Only offer the web-search toggle when ai-agent has a provider configured (config.web_search).
+    const webToggle = (state.config && state.config.web_search)
+      ? `<label class="webtoggle" title="Also search the live web, not just your documents"><input type="checkbox" id="webSearch"> Search the web</label>`
+      : "";
+    bar.innerHTML = `<textarea id="input" rows="1" placeholder="Ask a question…"></textarea>
+    ${webToggle}
     <button class="primary" id="send">Send</button>`;
-  pane.appendChild(bar);
-  const ta = bar.querySelector("#input");
-  ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; });
-  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
-  bar.querySelector("#send").onclick = send;
+    pane.appendChild(bar);
+    const ta = bar.querySelector("#input");
+    ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 160) + "px"; });
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+    bar.querySelector("#send").onclick = send;
+    const box = bar.querySelector("#webSearch");
+    if (box) box.addEventListener("change", (e) => { if (state.activeId != null) state.webByConv[state.activeId] = e.target.checked; });
+  }
+  const box = bar.querySelector("#webSearch");
+  if (box) box.checked = !!state.webByConv[state.activeId];   // restore this conversation's setting
 }
 
 function addBubble(role, content) {
@@ -274,7 +286,7 @@ async function send() {
   try {
     const resp = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: state.activeId, content: text }),
+      body: JSON.stringify({ conversation_id: state.activeId, content: text, web_search: !!state.webByConv[state.activeId] }),
     });
     if (!resp.ok) {
       let detail = "The assistant is unavailable right now.";

@@ -409,26 +409,25 @@ def extract_tool_calls(content: str) -> list:
 
     return tool_calls
 
-# ── Core agent loop ───────────────────────────────────────────────────────────
-async def run_agent(
-    messages: list,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    top_p: Optional[float] = None,
-) -> tuple[str, list[dict]]:
-    client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
-
-    system_prompt = """You are a helpful assistant with access to two tools:
-
-1. rag_search — Search the ingested documentation and knowledge base.
-   Use this first for any questions about products, vendors, or technical topics.
-   Format: <tool_call>{"name": "rag_search", "arguments": {"query": "your search query"}}</tool_call>
+# ── System prompt ─────────────────────────────────────────────────────────────
+def build_system_prompt(use_web: bool, cite_verify: bool) -> str:
+    """Assemble the agent's system prompt. The web_search tool is described only when web search
+    is on for this turn (the per-conversation toggle AND a configured provider); with it off the
+    model is told about rag_search alone and stays grounded in the ingested corpus."""
+    web_tool = """
 
 2. web_search — Search the live internet for current information.
    Use this for recent news, current events, weather, pricing, or when rag_search returns no useful results.
-   Format: <tool_call>{"name": "web_search", "arguments": {"query": "your search query"}}</tool_call>
+   Format: <tool_call>{"name": "web_search", "arguments": {"query": "your search query"}}</tool_call>""" if use_web else ""
+    web_guidance = " Use web_search when the knowledge base lacks the answer or for live/current information." if use_web else ""
 
-Always try rag_search first. Use web_search when the knowledge base lacks the answer or for live/current information.
+    prompt = f"""You are a helpful assistant with access to {"two tools" if use_web else "a search tool"}:
+
+1. rag_search — Search the ingested documentation and knowledge base.
+   Use this first for any questions about products, vendors, or technical topics.
+   Format: <tool_call>{{"name": "rag_search", "arguments": {{"query": "your search query"}}}}</tool_call>{web_tool}
+
+Always try rag_search first.{web_guidance}
 
 When formulating your answer after receiving tool results:
 - Answer ONLY using the information returned by the tools.
@@ -439,8 +438,8 @@ When formulating your answer after receiving tool results:
   the user is automatically shown that page as an image below your answer. Tell them which
   document and page contains the diagram; never claim you are unable to display images."""
 
-    if CITE_VERIFY:
-        system_prompt += """
+    if cite_verify:
+        prompt += """
 
 After your answer, on a new line, output a block of the verbatim quotes from the
 retrieved context that support your key claims, in exactly this format:
@@ -449,6 +448,23 @@ retrieved context that support your key claims, in exactly this format:
 "second verbatim quote"
 Include 1 to 4 quotes, each at most ~30 words, copied exactly from the retrieved
 context. If a claim has no verbatim support in the context, do not invent a quote."""
+    return prompt
+
+
+# ── Core agent loop ───────────────────────────────────────────────────────────
+async def run_agent(
+    messages: list,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    top_p: Optional[float] = None,
+    allow_web: bool = False,
+) -> tuple[str, list[dict]]:
+    client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
+
+    # Web search is usable only when the caller opted in for this conversation AND an operator has
+    # configured a provider. Either off => the model never hears about the web_search tool.
+    use_web = allow_web and WEB_SEARCH_PROVIDER != "none"
+    system_prompt = build_system_prompt(use_web, CITE_VERIFY)
 
     if not messages or messages[0].get("role") != "system":
         messages = [{"role": "system", "content": system_prompt}] + messages
@@ -491,8 +507,11 @@ context. If a claim has no verbatim support in the context, do not invent a quot
                 all_sources.extend(sources)
                 tool_results.append(f"Knowledge base results for '{query}':\n{result_text}")
             elif tool_name == "web_search":
-                result_text = await run_web_search(query)
-                tool_results.append(f"Web search results for '{query}':\n{result_text}")
+                if use_web:
+                    result_text = await run_web_search(query)
+                    tool_results.append(f"Web search results for '{query}':\n{result_text}")
+                else:
+                    tool_results.append("Web search is turned off for this conversation.")
             else:
                 tool_results.append(f"Unknown tool: {tool_name}")
 
@@ -516,6 +535,9 @@ class ChatCompletionRequest(BaseModel):
     stream: Optional[bool] = False
     max_tokens: Optional[int] = None
     top_p: Optional[float] = None
+    # Per-conversation web-search opt-in (default off => grounded, RAG-only). Effective only when
+    # an operator has also configured a WEB_SEARCH_PROVIDER; see build_system_prompt / run_agent.
+    web_search: Optional[bool] = None
 
 # ── Source / citation formatting ──────────────────────────────────────────────
 def format_sources(sources: list[dict]) -> str:
@@ -613,6 +635,7 @@ async def chat_completions(request: ChatCompletionRequest):
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             top_p=request.top_p,
+            allow_web=bool(request.web_search),
         )
 
         citations: list[dict] = []
@@ -678,6 +701,13 @@ async def stream_text(text: str):
 @app.get("/health")
 async def health():
     return {"status": "healthy", "vllm_url": VLLM_BASE_URL}
+
+# ── Capabilities ──────────────────────────────────────────────────────────────
+@app.get("/v1/capabilities")
+async def capabilities():
+    """Open (like /health): lets the chat UI decide whether to offer the web-search toggle.
+    web_search is available only when an operator has configured a provider."""
+    return {"web_search": WEB_SEARCH_PROVIDER != "none"}
 
 # ── Models Endpoint ───────────────────────────────────────────────────────────
 @app.get("/v1/models", dependencies=_guard(CHAT_USE))

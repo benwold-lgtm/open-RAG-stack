@@ -76,6 +76,8 @@ a{color:var(--brand)}
 .composer{border-top:1px solid var(--line);background:var(--panel);padding:.8rem 1rem;display:flex;gap:.6rem;align-items:flex-end}
 .composer textarea{flex:1;resize:none;font:inherit;padding:.6rem .8rem;border:1px solid var(--line);border-radius:10px;max-height:160px}
 .composer textarea:focus{outline:2px solid var(--brand);outline-offset:-1px}
+.composer .webtoggle{display:flex;align-items:center;gap:.35rem;font-size:.85rem;white-space:nowrap;user-select:none;cursor:pointer;padding-bottom:.55rem;opacity:.85}
+.composer .webtoggle input{cursor:pointer;margin:0}
 
 /* ── admin ─────────────────────────────────────────────────────────────────── */
 .admin{padding:1.4rem;overflow-y:auto}
