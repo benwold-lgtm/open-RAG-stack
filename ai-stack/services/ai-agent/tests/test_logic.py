@@ -81,6 +81,23 @@ def test_diagram_intent_false_for_plain_questions():
     assert not main._diagram_intent("")
 
 
+# ── system prompt assembly (web-search toggle) ────────────────────────────────
+def test_build_system_prompt_web_off_omits_web_tool():
+    p = main.build_system_prompt(use_web=False, cite_verify=False)
+    assert "web_search" not in p
+    assert "rag_search" in p and "a search tool" in p
+
+
+def test_build_system_prompt_web_on_lists_web_tool():
+    p = main.build_system_prompt(use_web=True, cite_verify=False)
+    assert "web_search" in p and "two tools" in p
+
+
+def test_build_system_prompt_cite_verify_toggles_citation_block():
+    assert "[[CITATIONS]]" in main.build_system_prompt(use_web=False, cite_verify=True)
+    assert "[[CITATIONS]]" not in main.build_system_prompt(use_web=False, cite_verify=False)
+
+
 # ── source rendering ──────────────────────────────────────────────────────────
 def test_format_sources_links_web_url():
     out = main.format_sources([{"vendor": "NV", "title": "Page", "url": "https://x.com/a", "doc_id": "d1"}])

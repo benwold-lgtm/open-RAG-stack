@@ -206,7 +206,11 @@ services:
       # Query rewriting before retrieval. Off by default — Phase 5 found it
       # net-negative for dense retrieval with nomic. Set "true" to re-enable.
       QUERY_REWRITE: ${QUERY_REWRITE:-false}
-      WEB_SEARCH_PROVIDER: "none"
+      # Web search: set WEB_SEARCH_PROVIDER=searxng in .env to enable the searxng service below;
+      # "none" (default) keeps answers grounded in the ingested corpus only. Even when enabled,
+      # users opt in per conversation via the chat-ui "Search the web" toggle.
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-none}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
       # Shared data-plane token (see ingestion above). Empty = open local testing.
       SERVICE_TOKEN: ${SERVICE_TOKEN:-}
     ports:
@@ -251,8 +255,8 @@ services:
       start_period: 15s
 
   # ── Web search — optional ─────────────────────────────────────────────────────
-  # Disabled by default (ai-agent WEB_SEARCH_PROVIDER: none).
-  # To enable: set WEB_SEARCH_PROVIDER: searxng in ai-agent env above,
+  # Disabled by default (WEB_SEARCH_PROVIDER defaults to none).
+  # To enable: set WEB_SEARCH_PROVIDER=searxng in .env,
   # then update docker-compose/searxng/settings.yml with a real secret_key.
   searxng:
     image: searxng/searxng:latest
