@@ -1,0 +1,55 @@
+open-RAG-stack
+Copyright (c) 2026 Ben Wold
+
+============================================================================
+Licensing summary (read this first)
+============================================================================
+
+As assembled and deployed, open-RAG-stack v2.0.0 is licensed under the
+GNU Affero General Public License v3.0 (AGPL-3.0). The full text is in the
+LICENSE file.
+
+Why AGPL and not MIT? Earlier releases were labeled MIT, but the ingestion
+service has bundled PyMuPDF (`pymupdf`, pinned in
+ai-stack/services/ingestion/requirements.txt) since v1.0.0, and PyMuPDF is
+licensed AGPL-3.0. Because the stack ships and links that component, the
+combined work is governed by AGPL-3.0. v2.0.0 corrects the license label to
+match reality. PyMuPDF is the single dependency forcing this; nothing else in
+the stack requires copyleft.
+
+------------------------------------------------------------
+What this means for you
+------------------------------------------------------------
+
+* Running it internally (a company or individual using it in-house, even
+  over an internal network): AGPL imposes no practical burden. You already
+  have the source. Use it freely.
+
+* Redistributing it, or offering it as a network service to outside users:
+  AGPL-3.0 applies. You must offer those users the corresponding source of
+  the version you run, under AGPL-3.0. (See LICENSE section 13.)
+
+------------------------------------------------------------
+First-party code is still MIT
+------------------------------------------------------------
+
+Every line of code in this repository authored for open-RAG-stack is
+also offered by the copyright holder under the MIT License. The AGPL
+obligation comes solely from the bundled PyMuPDF dependency, not from
+the first-party code.
+
+If you need a fully permissive (non-copyleft) deployment — for example to
+redistribute a closed-source product — you have two clean paths:
+
+  1. Replace PyMuPDF with a permissively licensed engine (e.g. pypdfium2,
+     BSD-3-Clause). With PyMuPDF removed, the first-party code stands alone
+     under MIT.
+  2. Obtain a commercial PyMuPDF license from Artifex, which lifts the AGPL
+     obligation for that component.
+
+------------------------------------------------------------
+Not legal advice
+------------------------------------------------------------
+
+This summary reflects the maintainer's good-faith understanding and is not
+legal advice. If your use is commercially significant, consult a lawyer.
