@@ -36,14 +36,15 @@ def test_clean_collapses_runs_of_spaces_and_blank_lines():
 
 # ── extract_document ──────────────────────────────────────────────────────────
 def test_extract_document_txt_cleans_text():
-    title, segs = asyncio.run(main.extract_document("notes.txt", b"line one\n\n\n\nline two   "))
+    title, segs, viewable = asyncio.run(main.extract_document("notes.txt", b"line one\n\n\n\nline two   "))
     assert title == "notes.txt"
     assert len(segs) == 1 and segs[0]["page"] is None and segs[0]["has_image"] is False
     assert segs[0]["text"] == "line one\n\nline two"
+    assert viewable is None                              # txt has no page-accurate PDF
 
 
 def test_extract_document_md_decodes_utf8():
-    _, segs = asyncio.run(main.extract_document("r.md", "café résumé".encode("utf-8")))
+    _, segs, _ = asyncio.run(main.extract_document("r.md", "café résumé".encode("utf-8")))
     assert "café" in segs[0]["text"] and "résumé" in segs[0]["text"]
 
 
@@ -59,7 +60,8 @@ def test_extract_document_docx():
     d.add_paragraph("Second paragraph")
     buf = io.BytesIO()
     d.save(buf)
-    _, segs = asyncio.run(main.extract_document("x.docx", buf.getvalue()))
+    # No LibreOffice in the unit-test env -> extract_document falls back to native text extraction.
+    _, segs, _ = asyncio.run(main.extract_document("x.docx", buf.getvalue()))
     assert "Hello world" in segs[0]["text"] and "Second paragraph" in segs[0]["text"]
 
 
@@ -70,7 +72,7 @@ def test_extract_document_pptx():
     slide.shapes.title.text = "Slide Heading"
     buf = io.BytesIO()
     prs.save(buf)
-    _, segs = asyncio.run(main.extract_document("x.pptx", buf.getvalue()))
+    _, segs, _ = asyncio.run(main.extract_document("x.pptx", buf.getvalue()))
     assert "Slide Heading" in segs[0]["text"]
 
 
