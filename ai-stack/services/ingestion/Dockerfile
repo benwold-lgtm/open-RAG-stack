@@ -13,10 +13,16 @@ COPY ai-stack/lib/rag_auth /tmp/rag_auth
 RUN pip install --no-cache-dir /tmp/rag_auth
 
 COPY ai-stack/services/ingestion/requirements.txt .
-RUN apt-get update && apt-get install -y \
+# libreoffice-writer/impress (headless) convert DOCX/PPTX -> PDF so office docs flow through the
+# same page-aware pipeline as PDFs (page images, captions, OCR). --no-install-recommends keeps the
+# image lean; PDF export does not need the Java runtime.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     tesseract-ocr \
+    tesseract-ocr-eng \
+    libreoffice-writer \
+    libreoffice-impress \
     && pip install --no-cache-dir -r requirements.txt \
     && playwright install --with-deps chromium \
     && chmod -R 755 /ms-playwright \

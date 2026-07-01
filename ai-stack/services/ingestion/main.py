@@ -365,37 +365,69 @@ def _extract_pptx(content: bytes) -> str:
     return "\n\n".join(slides)
 
 
+def _office_to_pdf(content: bytes, ext: str) -> bytes:
+    """Render a DOCX/PPTX to PDF with headless LibreOffice, so office docs flow through the same
+    page-aware pipeline as PDFs (per-page segments, figure captions, OCR, page-image rendering).
+    A private per-call UserInstallation profile keeps concurrent conversions from colliding.
+    Raises on failure so the caller can fall back to plain text extraction."""
+    import subprocess, tempfile, glob
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, f"input.{ext}")
+        with open(src, "wb") as f:
+            f.write(content)
+        subprocess.run(
+            ["soffice", "--headless", f"-env:UserInstallation=file://{tmp}/lo",
+             "--convert-to", "pdf", "--outdir", tmp, src],
+            check=True, capture_output=True, timeout=180,
+            env={**os.environ, "HOME": tmp},
+        )
+        pdfs = glob.glob(os.path.join(tmp, "*.pdf"))
+        if not pdfs:
+            raise RuntimeError("LibreOffice produced no PDF output")
+        with open(pdfs[0], "rb") as f:
+            return f.read()
+
+
 def _clean(text: str) -> str:
     text = re.sub(r' {2,}', ' ', text)
     return re.sub(r'\n{3,}', '\n\n', text).strip()
 
 
-async def extract_document(filename: str, content: bytes) -> tuple[str, list[dict]]:
-    """Extract (title, segments) from a PDF, DOCX, PPTX, txt, or md file.
+async def extract_document(filename: str, content: bytes) -> tuple[str, list[dict], Optional[bytes]]:
+    """Extract (title, segments, viewable_pdf) from a PDF, DOCX, PPTX, txt, or md file.
 
-    Each segment is {page, text, has_image}. PDFs yield one segment per page
-    (page-aware, OCR fallback); other formats yield a single page=None segment."""
+    Each segment is {page, text, has_image}. PDFs and (via LibreOffice) DOCX/PPTX yield one
+    segment per page — page-aware, OCR fallback, figure captions. viewable_pdf is the page-accurate
+    PDF to store/serve for page citations: the file itself for a PDF, the LibreOffice-derived PDF
+    for an office doc, or None for txt/md and when office->PDF conversion is unavailable/fails."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Unsupported file type: .{ext}. Supported: {', '.join(SUPPORTED_EXTENSIONS)}")
 
     loop = asyncio.get_event_loop()
+    viewable: Optional[bytes] = None
     if ext == "pdf":
         segments = await loop.run_in_executor(None, _extract_pdf_pages, content)
-    elif ext == "docx":
-        text = await loop.run_in_executor(None, _extract_docx, content)
-        segments = [{"page": None, "text": text, "has_image": False}]
-    elif ext == "pptx":
-        text = await loop.run_in_executor(None, _extract_pptx, content)
-        segments = [{"page": None, "text": text, "has_image": False}]
+        viewable = content
+    elif ext in ("docx", "pptx"):
+        try:
+            pdf_bytes = await loop.run_in_executor(None, _office_to_pdf, content, ext)
+            segments = await loop.run_in_executor(None, _extract_pdf_pages, pdf_bytes)
+            viewable = pdf_bytes
+        except Exception as exc:                                  # LibreOffice missing/failed
+            print(f"[ingestion] {ext}->PDF conversion failed for {filename} ({exc}); "
+                  f"falling back to text-only extraction.", flush=True)
+            extractor = _extract_docx if ext == "docx" else _extract_pptx
+            text = await loop.run_in_executor(None, extractor, content)
+            segments = [{"page": None, "text": text, "has_image": False}]
     else:
         text = content.decode("utf-8", errors="replace")
         segments = [{"page": None, "text": text, "has_image": False}]
 
     for seg in segments:
         seg["text"] = _clean(seg["text"])
-    return filename, segments
+    return filename, segments, viewable
 
 # ── File storage ──────────────────────────────────────────────────────────────
 def _safe_component(name: str) -> str:
@@ -638,7 +670,7 @@ async def ingest_document_task(
         await db.commit()
 
     try:
-        title, segments = await extract_document(filename, content)
+        title, segments, viewable = await extract_document(filename, content)
 
         full_text = "\n\n".join(s["text"] for s in segments)
         if len(full_text) < 50:
@@ -659,7 +691,13 @@ async def ingest_document_task(
                     await db.commit()
                     return
 
+        # Always keep the original upload. For an office doc we also derived a page-accurate PDF
+        # (viewable) — store it too and point citations/page-images at it, since the "p.N" citations
+        # index the PDF's pages and it renders inline in chat. PDFs: viewable IS content (skip).
         file_path = save_file(doc_id, filename, content, vendor)
+        if viewable is not None and viewable is not content:
+            stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+            file_path = save_file(doc_id, f"{stem}.pdf", viewable, vendor)
 
         chunk_count = await run_pipeline(
             doc_id, filename, title, segments, content_hash,
