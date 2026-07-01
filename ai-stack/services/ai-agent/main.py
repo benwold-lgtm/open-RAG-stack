@@ -412,7 +412,6 @@ def extract_tool_calls(content: str) -> list:
 # ── Core agent loop ───────────────────────────────────────────────────────────
 async def run_agent(
     messages: list,
-    model: Optional[str] = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
     top_p: Optional[float] = None,
@@ -462,7 +461,9 @@ context. If a claim has no verbatim support in the context, do not invent a quot
         iteration += 1
 
         response = await client.chat.completions.create(
-            model=model or VLLM_MODEL,
+            # ai-agent backs exactly one vLLM model, so ignore any client-supplied model name:
+            # a stale/unknown id (e.g. chat-ui's cached default after an LLM swap) would 404 vLLM.
+            model=VLLM_MODEL,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -609,7 +610,6 @@ async def chat_completions(request: ChatCompletionRequest):
     try:
         final_response, sources = await run_agent(
             messages,
-            model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             top_p=request.top_p,
