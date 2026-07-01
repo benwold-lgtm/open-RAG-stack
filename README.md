@@ -1,6 +1,6 @@
 # open-RAG-stack
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)
 ![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)
 ![Kubernetes 1.24+](https://img.shields.io/badge/Kubernetes-1.24%2B-blue)
 
@@ -382,7 +382,8 @@ open-RAG-stack/
 ├── deploy/                   # install.sh — Helm deploy/upgrade for all services
 ├── docs/                     # Architecture diagram (.drawio source + .png)
 ├── scripts/                  # Helper scripts — see Scripts reference below
-└── LICENSE                   # MIT
+├── LICENSE                   # AGPL-3.0 (assembled stack)
+└── NOTICE                    # Licensing summary — why AGPL, MIT for first-party code
 ```
 
 ---
@@ -601,3 +602,11 @@ All secrets are created by `scripts/bootstrap.sh` and stored in Kubernetes — n
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and tests, and report security issues privately per [SECURITY.md](SECURITY.md).
 
 This is a personal project shared as-is. It's maintained on a **best-effort basis with no SLA or commercial support**, and comes with no warranty (see [LICENSE](LICENSE)). If you run it in production, plan to maintain your own fork.
+
+## License
+
+As assembled, open-RAG-stack is licensed under **AGPL-3.0** (see [LICENSE](LICENSE)). Earlier releases were labeled MIT, but the stack has bundled [PyMuPDF](ai-stack/services/ingestion/requirements.txt) (AGPL-3.0) since v1.0.0, which makes the combined work AGPL-3.0. v2.0.0 corrects the label. PyMuPDF is the only component forcing copyleft.
+
+**Running it internally** — a company or individual using it in-house — carries no practical burden. AGPL's obligations apply when you **redistribute** it or serve it to **outside users** over a network.
+
+The first-party code is also offered under MIT. For a fully permissive deployment, swap PyMuPDF for a BSD-licensed engine like pypdfium2, or obtain a commercial PyMuPDF license from Artifex. See [NOTICE](NOTICE) for the full summary.
