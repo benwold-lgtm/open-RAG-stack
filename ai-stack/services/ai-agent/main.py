@@ -70,6 +70,12 @@ CITE_VERIFY = os.getenv("CITE_VERIFY", "true").lower() in ("1", "true", "yes")
 # dense retrieval with nomic (keyword text embeds worse than the natural question),
 # so default off. See ENHANCEMENT-PLAN Phase 5/6.
 QUERY_REWRITE = os.getenv("QUERY_REWRITE", "false").lower() in ("1", "true", "yes")
+# Default sampling temperature for the agent loop when the caller doesn't specify one.
+# Low by design: tool-call emission (the <tool_call> JSON) is a formatting task, not a
+# creative one, and higher temperatures made rag_search calls unreliable in testing —
+# especially on later turns of a conversation, where the model would skip searching
+# again and answer from training knowledge instead.
+AGENT_DEFAULT_TEMPERATURE = float(os.getenv("AGENT_DEFAULT_TEMPERATURE", "0.2"))
 
 # ── Web Search Provider ───────────────────────────────────────────────────────
 # Set WEB_SEARCH_PROVIDER in the ai-agent Helm chart values.yaml. Options:
@@ -428,6 +434,9 @@ def build_system_prompt(use_web: bool, cite_verify: bool) -> str:
    Format: <tool_call>{{"name": "rag_search", "arguments": {{"query": "your search query"}}}}</tool_call>{web_tool}
 
 Always try rag_search first.{web_guidance}
+Call rag_search for every knowledge question, even if an earlier turn in this conversation
+already searched a related topic and found nothing — a different phrasing can match different
+content. Never answer a knowledge question from memory alone just because a prior search failed.
 
 When formulating your answer after receiving tool results:
 - Answer ONLY using the information returned by the tools.
@@ -460,6 +469,8 @@ async def run_agent(
     allow_web: bool = False,
 ) -> tuple[str, list[dict]]:
     client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
+    if temperature is None:
+        temperature = AGENT_DEFAULT_TEMPERATURE
 
     # Web search is usable only when the caller opted in for this conversation AND an operator has
     # configured a provider. Either off => the model never hears about the web_search tool.
