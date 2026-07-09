@@ -40,7 +40,11 @@ ai-stack/lib/rag_auth         # pytest      (shared auth framework)
 ai-stack/services/chat-ui     # pytest
 ai-stack/services/ai-agent    # pytest      (needs the service requirements installed)
 ai-stack/services/ingestion   # pytest      (needs the service requirements installed)
+ai-stack/services/rag-admin   # pytest
 ```
+
+CI runs all five suites automatically on every pull request and push to `main`
+(`.github/workflows/test.yml`) — a PR should be green there before review.
 
 For chart changes, validate rendering with `helm template <chart> ai-stack/charts/<chart>`
 (also with any feature flag you touched, e.g. `--set networkPolicy.enabled=true`).
