@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, F
 from pydantic import BaseModel
 from typing import Optional
 from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PointStruct, Filter,
     FieldCondition, MatchValue
@@ -162,20 +162,22 @@ async def startup():
         asyncio.create_task(watch_folder())
 
 # ── Qdrant client ─────────────────────────────────────────────────────────────
+# Async client: the sync QdrantClient's network calls block the event loop, which
+# stalls /health and the lexical search ai-agent depends on during a large ingest.
 def get_qdrant():
-    return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    return AsyncQdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 
 # ── Ensure collection exists ──────────────────────────────────────────────────
 async def ensure_collection(collection: str):
     client = get_qdrant()
-    existing = [c.name for c in client.get_collections().collections]
+    existing = [c.name for c in (await client.get_collections()).collections]
     if collection not in existing:
-        client.create_collection(
+        await client.create_collection(
             collection_name=collection,
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE)
         )
 
-def _copy_points(client, source: str, target: str, scroll_filter=None, batch: int = 256) -> int:
+async def _copy_points(client, source: str, target: str, scroll_filter=None, batch: int = 256) -> int:
     """Copy points (vectors + payload) from one Qdrant collection to another,
     re-tagging each payload's `collection` field. Point IDs are preserved so the
     FTS5 rows (keyed by point_id) stay valid. Returns the number of points copied.
@@ -183,7 +185,7 @@ def _copy_points(client, source: str, target: str, scroll_filter=None, batch: in
     copied = 0
     offset = None
     while True:
-        points, offset = client.scroll(
+        points, offset = await client.scroll(
             collection_name=source,
             scroll_filter=scroll_filter,
             with_payload=True,
@@ -197,7 +199,7 @@ def _copy_points(client, source: str, target: str, scroll_filter=None, batch: in
             PointStruct(id=p.id, vector=p.vector, payload={**(p.payload or {}), "collection": target})
             for p in points
         ]
-        client.upsert(collection_name=target, points=retagged)
+        await client.upsert(collection_name=target, points=retagged)
         copied += len(retagged)
         if offset is None:
             break
@@ -529,7 +531,7 @@ async def run_pipeline(
         await db.commit()
 
     client = get_qdrant()
-    client.delete(
+    await client.delete(
         collection_name=collection,
         points_selector=Filter(
             must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
@@ -572,7 +574,7 @@ async def run_pipeline(
                 }
             ))
             fts_rows.append((str(point_id), collection, source, content, title, vendor, doc_id))
-        client.upsert(collection_name=collection, points=points)
+        await client.upsert(collection_name=collection, points=points)
 
         async with aiosqlite.connect(DB_PATH) as db:
             await db.executemany(
@@ -1158,9 +1160,9 @@ async def delete_document(doc_id: str):
             doc = dict(row)
 
     client = get_qdrant()
-    existing = [c.name for c in client.get_collections().collections]
+    existing = [c.name for c in (await client.get_collections()).collections]
     if doc["collection"] in existing:
-        client.delete(
+        await client.delete(
             collection_name=doc["collection"],
             points_selector=Filter(
                 must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
@@ -1194,13 +1196,13 @@ async def move_document(doc_id: str, request: MoveDocumentRequest):
 
     await ensure_collection(target)
     client = get_qdrant()
-    existing = [c.name for c in client.get_collections().collections]
+    existing = [c.name for c in (await client.get_collections()).collections]
     flt = Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))])
 
     moved = 0
     if source in existing:
-        moved = _copy_points(client, source, target, scroll_filter=flt)
-        client.delete(collection_name=source, points_selector=flt)
+        moved = await _copy_points(client, source, target, scroll_filter=flt)
+        await client.delete(collection_name=source, points_selector=flt)
 
     now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1227,9 +1229,9 @@ async def set_document_vendor(doc_id: str, request: SetVendorRequest):
     doc = dict(row)
 
     client = get_qdrant()
-    existing = [c.name for c in client.get_collections().collections]
+    existing = [c.name for c in (await client.get_collections()).collections]
     if doc["collection"] in existing:
-        client.set_payload(
+        await client.set_payload(
             collection_name=doc["collection"],
             payload={"vendor": new_vendor},
             points=Filter(must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]),
@@ -1248,7 +1250,7 @@ async def list_collections():
     client = get_qdrant()
     return {
         "collections": [
-            {"name": c.name} for c in client.get_collections().collections
+            {"name": c.name} for c in (await client.get_collections()).collections
         ]
     }
 
@@ -1270,15 +1272,15 @@ async def rename_collection(name: str, request: RenameCollectionRequest):
         raise HTTPException(status_code=400, detail="new_name must differ from the current name")
 
     client = get_qdrant()
-    existing = [c.name for c in client.get_collections().collections]
+    existing = [c.name for c in (await client.get_collections()).collections]
     if name not in existing:
         raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
     if new_name in existing:
         raise HTTPException(status_code=409, detail=f"Collection '{new_name}' already exists")
 
     await ensure_collection(new_name)
-    moved = _copy_points(client, name, new_name)
-    client.delete_collection(collection_name=name)
+    moved = await _copy_points(client, name, new_name)
+    await client.delete_collection(collection_name=name)
 
     now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
