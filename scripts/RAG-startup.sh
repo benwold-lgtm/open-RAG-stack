@@ -11,7 +11,7 @@ warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 
 NODE_IP="${NODE_IP:-<your-gpu-node-ip>}"
 
-RAG_NAMESPACES=(ai-stack ai-agent embedding ingestion chat-ui qdrant)
+RAG_NAMESPACES=(ai-stack ai-agent embedding reranker ingestion chat-ui rag-admin qdrant)
 
 echo
 echo "╔═══════════════════════════════════════════╗"

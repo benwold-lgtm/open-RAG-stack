@@ -174,7 +174,7 @@ nodeSelector:
   kubernetes.io/hostname: your-gpu-node
 ```
 
-Repeat `nodeSelector` for `embedding`, `ingestion`, `qdrant`, and `chat-ui` charts.
+Repeat `nodeSelector` for the `embedding`, `reranker`, `ingestion`, `qdrant`, `chat-ui`, and `rag-admin` charts — each ships a `<your-node-name>` placeholder that must point at a real node or the pod won't schedule.
 
 ### 2. Configure web search (optional)
 
@@ -242,6 +242,8 @@ curl -s -o /dev/null -w "vllm        %{http_code}\n"  http://$NODE_IP:30000/heal
 curl -s -o /dev/null -w "embedding   %{http_code}\n"  http://$NODE_IP:30082/health
 curl -s -o /dev/null -w "ingestion   %{http_code}\n"  http://$NODE_IP:30083/health
 curl -s -o /dev/null -w "ai-agent    %{http_code}\n"  http://$NODE_IP:30081/health
+curl -s -o /dev/null -w "reranker    %{http_code}\n"  http://$NODE_IP:30084/health
+curl -s -o /dev/null -w "rag-admin   %{http_code}\n"  http://$NODE_IP:30085/health
 curl -s -o /dev/null -w "qdrant      %{http_code}\n"  http://$NODE_IP:30333/
 ```
 
@@ -371,6 +373,9 @@ open-RAG-stack/
 │   │   ├── embedding/
 │   │   ├── ingestion/
 │   │   ├── qdrant/
+│   │   ├── rag-admin/
+│   │   ├── reranker/
+│   │   ├── searxng/          # optional — deploy only if you enable SearXNG web search
 │   │   └── vllm-server/
 │   ├── lib/
 │   │   └── rag_auth/         # shared auth module (scopes, sessions, OIDC) — bundled into chat-ui
@@ -378,7 +383,9 @@ open-RAG-stack/
 │       ├── ai-agent/         # RAG agent (FastAPI)
 │       ├── chat-ui/          # Chat UI — FastAPI API + vanilla-JS SPA
 │       ├── embedding/        # Embedding service (FastAPI)
-│       └── ingestion/        # Ingestion pipeline (FastAPI)
+│       ├── ingestion/        # Ingestion pipeline (FastAPI)
+│       ├── rag-admin/        # Admin UI — ingestion proxy (FastAPI)
+│       └── reranker/         # Cross-encoder reranker (FastAPI)
 ├── deploy/                   # install.sh — Helm deploy/upgrade for all services
 ├── docs/                     # Architecture diagram (.drawio source + .png)
 ├── scripts/                  # Helper scripts — see Scripts reference below
@@ -426,7 +433,7 @@ The **chat UI** authenticates every request. The first account to register becom
 
 The **RAG Admin UI** (port 8005 / NodePort 30085) is unauthenticated by default. To require a login on every page and write/delete action, set `ADMIN_USER` and `ADMIN_PASSWORD` — in `.env` for Docker Compose, or as the `rag-admin-auth` secret with `auth.enabled: true` in the chart. The `/health` probe stays open. This gates the UI; keep network access LAN-scoped regardless.
 
-The **data plane** — `ai-agent` (`/v1/chat/completions`, `/v1/models`) and `ingestion` (all data routes) — is protected by a shared machine-to-machine **`SERVICE_TOKEN`**. chat-ui, rag-admin and the helper scripts send it as `Authorization: Bearer $SERVICE_TOKEN`; ai-agent and ingestion require it on every non-health route. The Helm path **auto-generates one token** in `scripts/bootstrap.sh` and writes the same value into the `ai-agent-secrets`, `ingestion-secrets` and `chat-ui-secrets` secrets (add it to `rag-admin-secrets` yourself if you deploy rag-admin). For Docker Compose the data plane ships **open** (frictionless single-node testing); set `SERVICE_TOKEN` in `.env` (`openssl rand -hex 32`) to require it everywhere.
+The **data plane** — `ai-agent` (`/v1/chat/completions`, `/v1/models`) and `ingestion` (all data routes) — is protected by a shared machine-to-machine **`SERVICE_TOKEN`**. chat-ui, rag-admin and the helper scripts send it as `Authorization: Bearer $SERVICE_TOKEN`; ai-agent and ingestion require it on every non-health route. The Helm path **auto-generates one token** in `scripts/bootstrap.sh` and writes the same value into the `ai-agent-secrets`, `ingestion-secrets`, `chat-ui-secrets` and `rag-admin-secrets` secrets. For Docker Compose the data plane ships **open** (frictionless single-node testing); set `SERVICE_TOKEN` in `.env` (`openssl rand -hex 32`) to require it everywhere.
 
 In Kubernetes (`ENVIRONMENT=production`) ai-agent and ingestion **fail closed** — they refuse to boot with no `SERVICE_TOKEN` configured. To run them open on a trusted, isolated LAN, set **`ALLOW_ANONYMOUS=true`** (`config.allowAnonymous: true` in their charts), which restores the legacy unauthenticated behavior. Two routes always stay open: each service's `/health` probe, and ingestion's page-image route (`/documents/{id}/pages/{page}/image`), which browsers load directly as `<img>` URLs and cannot send a bearer token — gate that one at the network layer.
 
@@ -560,7 +567,7 @@ A minimal starter dashboard: request rate (`rate(http_requests_total[5m])`), p95
 - If missing, run bootstrap.sh again — it skips existing secrets so re-running is safe.
 
 **401 from ingestion or ai-agent (or chat answers / admin actions fail with 401)**
-- The data plane is token-protected. Confirm the same `SERVICE_TOKEN` is in every relevant secret: `kubectl get secret ai-agent-secrets -n ai-agent ingestion-secrets -n ingestion chat-ui-secrets -n chat-ui -o jsonpath='{..SERVICE_TOKEN}'` should print the **same** base64 value three times. Re-run `bootstrap.sh` (it reuses the existing token) if one is missing.
+- The data plane is token-protected. Confirm the same `SERVICE_TOKEN` is in every relevant secret: `for ns in ai-agent ingestion chat-ui rag-admin; do kubectl get secret ${ns}-secrets -n $ns -o jsonpath='{.data.SERVICE_TOKEN}'; echo; done` should print the **same** base64 value four times. Re-run `bootstrap.sh` (it reuses the existing token) if one is missing.
 - For the helper scripts, export the token first: `export SERVICE_TOKEN=<value>` before running `rag-query.sh` / `ingest-status.sh` / `link-scrape.sh`.
 - `ai-agent`/`ingestion` **refuse to boot** in `ENVIRONMENT=production` with no token: check their logs for the fail-closed warning, set the token, or set `ALLOW_ANONYMOUS=true` for a trusted LAN.
 
@@ -589,11 +596,12 @@ All secrets are created by `scripts/bootstrap.sh` and stored in Kubernetes — n
 | `ai-agent-secrets` | `ai-agent` | `BRAVE_API_KEY`, `QDRANT_API_KEY`, `SERVICE_TOKEN` | Web search + Qdrant auth + data-plane token for ai-agent |
 | `ingestion-secrets` | `ingestion` | `SERVICE_TOKEN` | Data-plane token ingestion verifies |
 | `chat-ui-secrets` | `chat-ui` | `SESSION_SECRET`, `SERVICE_TOKEN` | Session signing + data-plane token chat-ui sends |
+| `rag-admin-secrets` | `rag-admin` | `SERVICE_TOKEN` | Data-plane token rag-admin forwards to ingestion |
 | `qdrant-secrets` | `qdrant` | `QDRANT_API_KEY` | Qdrant API key |
 | `hf-token-secret` | `ai-stack` | `token` | Hugging Face token for vLLM model download |
-| `ghcr-pull-secret` | `ingestion` | Docker config | Pull custom images from ghcr.io |
+| `ghcr-pull-secret` | each image-pulling namespace | Docker config | Pull custom images from ghcr.io (created in `ai-agent`, `embedding`, `ingestion`, `reranker`, `chat-ui`, `rag-admin`) |
 
-`SERVICE_TOKEN` is one shared value — `bootstrap.sh` generates it once and writes the same string into all three secrets above. If you deploy `rag-admin`, create `rag-admin-secrets` in its namespace with the same `SERVICE_TOKEN` so its proxied calls to ingestion are authorized.
+`SERVICE_TOKEN` is one shared value — `bootstrap.sh` generates it once and writes the same string into the four `*-secrets` above that carry it, so the whole data plane agrees.
 
 ---
 
