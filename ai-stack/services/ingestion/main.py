@@ -1290,12 +1290,23 @@ async def rename_collection(name: str, request: RenameCollectionRequest):
 
     return {"message": f"Renamed collection '{name}' to '{new_name}'", "points_moved": moved}
 
+def _fts_query(q: str) -> str:
+    """Turn free text into a safe FTS5 MATCH query: every whitespace-delimited token
+    becomes a quoted string (implicitly ANDed, like bare words). Without this, FTS5
+    parses characters like - " : * as query syntax, so a search for a term such as
+    "bge-reranker-v2" raises a syntax error and the BM25 channel silently returns
+    nothing for exactly the hyphenated model/product names this corpus is full of."""
+    tokens = re.findall(r'[^\s"]+', q)
+    return " ".join(f'"{t}"' for t in tokens)
+
+
 @app.get("/search/lexical", dependencies=_guard(INGEST_READ))
 async def lexical_search(
     q: str,
     collection: Optional[str] = None,
     limit: int = 20,
 ):
+    q = _fts_query(q)
     if not q.strip():
         return {"results": []}
     try:
