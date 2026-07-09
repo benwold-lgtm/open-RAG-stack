@@ -77,10 +77,10 @@ webSearch:
   secretName: "ai-agent-secrets"  # K8s secret containing the provider API key
 
 # ── Reranker ─────────────────────────────────────────────────────────────────
-# Leave url empty to disable reranking (top-5 by vector score is used instead).
-# Deploy ai-stack/charts/reranker first, then set url here to enable it.
+# The reranker chart is deployed by deploy/install.sh, so this points at it by
+# default. Set url to "" to disable reranking (top-5 by vector score instead).
 reranker:
-  url: ""  # e.g. http://reranker.reranker.svc.cluster.local:8003
+  url: "http://reranker.reranker.svc.cluster.local:8003"
 
 # ── Network isolation ─────────────────────────────────────────────────────────
 # Restrict ingress to ai-agent to chat-ui only. Default off so the first deploy works

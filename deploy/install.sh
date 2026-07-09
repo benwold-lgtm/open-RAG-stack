@@ -27,10 +27,12 @@ command -v helm &>/dev/null || die "'helm' not found in PATH"
 RELEASES=(
   "qdrant:qdrant"
   "embedding:embedding"
+  "reranker:reranker"
   "vllm-server:ai-stack"
   "ingestion:ingestion"
   "ai-agent:ai-agent"
   "chat-ui:chat-ui"
+  "rag-admin:rag-admin"
 )
 
 echo

@@ -54,7 +54,7 @@ fi
 # Namespaces and secrets must exist before `helm install` so pods can mount
 # their secrets on first start.
 info "Creating namespaces..."
-for ns in ai-agent qdrant ai-stack ingestion embedding chat-ui; do
+for ns in ai-agent qdrant ai-stack ingestion embedding reranker chat-ui rag-admin; do
   kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
 done
 ok "Namespaces ready"
@@ -139,6 +139,15 @@ else
   ok "Created secret 'chat-ui-secrets' in namespace chat-ui (SESSION_SECRET auto-generated)"
 fi
 
+if kubectl get secret rag-admin-secrets -n rag-admin &>/dev/null; then
+  warn "Secret 'rag-admin-secrets' already exists — skipping"
+else
+  # rag-admin proxies every call to ingestion, so it must send the same SERVICE_TOKEN.
+  kubectl create secret generic rag-admin-secrets -n rag-admin \
+    --from-literal=SERVICE_TOKEN="${SERVICE_TOKEN}"
+  ok "Created secret 'rag-admin-secrets' in namespace rag-admin (SERVICE_TOKEN shared)"
+fi
+
 if kubectl get secret hf-token-secret -n ai-stack &>/dev/null; then
   warn "Secret 'hf-token-secret' already exists — skipping"
 else
@@ -151,7 +160,8 @@ fi
 # ── GHCR pull secret (required if your packages are private) ──────────────────
 echo
 info "Checking whether GHCR images are accessible without auth..."
-echo "  The three custom images (ai-agent, embedding, ingestion) are hosted on ghcr.io."
+echo "  The six custom images (ai-agent, embedding, ingestion, reranker, chat-ui, rag-admin)"
+echo "  are hosted on ghcr.io."
 echo "  If you made those packages public (Settings → Package → Change visibility → Public)"
 echo "  you can skip this step. Otherwise enter your GitHub username and a PAT with"
 echo "  'read:packages' scope to create a pull secret."
@@ -160,7 +170,7 @@ read -rp "  Create ghcr-pull-secret? [y/N]: " CREATE_PULL_SECRET
 if [[ "${CREATE_PULL_SECRET,,}" == "y" ]]; then
   prompt_secret "GitHub username" GHCR_USER
   prompt_secret "GitHub PAT (read:packages scope)" GHCR_TOKEN
-  for ns in ai-agent embedding ingestion; do
+  for ns in ai-agent embedding ingestion reranker chat-ui rag-admin; do
     if kubectl get secret ghcr-pull-secret -n "$ns" &>/dev/null; then
       warn "  ghcr-pull-secret already exists in $ns — skipping"
     else
@@ -197,5 +207,7 @@ echo "    vLLM API     →  http://${NODE_IP}:30000/v1"
 echo "    ai-agent     →  http://${NODE_IP}:30081"
 echo "    embedding    →  http://${NODE_IP}:30082"
 echo "    ingestion    →  http://${NODE_IP}:30083"
+echo "    reranker     →  http://${NODE_IP}:30084"
+echo "    RAG Admin    →  http://${NODE_IP}:30085"
 echo "    Qdrant REST  →  http://${NODE_IP}:30333"
 echo "─────────────────────────────────────────────────────────────────"
