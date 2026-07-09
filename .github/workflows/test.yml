@@ -1,0 +1,58 @@
+name: Tests
+
+# Runs every pytest suite on pull requests and on main, so a regression is caught
+# before the build-*.yml workflows publish a broken :latest image. Suites install
+# into separate jobs because the services pin conflicting versions on purpose
+# (e.g. ai-agent fastapi 0.111 / chat-ui fastapi 0.115).
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: pytest (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: rag_auth
+            workdir: ai-stack/lib/rag_auth
+            install: pip install -e ".[test]"
+          - suite: ai-agent
+            workdir: ai-stack/services/ai-agent
+            install: pip install -r requirements.txt -e ../../lib/rag_auth pytest
+          - suite: ingestion
+            workdir: ai-stack/services/ingestion
+            install: pip install -r requirements.txt -e ../../lib/rag_auth pytest
+          - suite: chat-ui
+            workdir: ai-stack/services/chat-ui
+            install: pip install -r requirements.txt -e ../../lib/rag_auth pytest
+          - suite: rag-admin
+            workdir: ai-stack/services/rag-admin
+            install: pip install -r requirements.txt pytest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            ${{ matrix.workdir }}/requirements.txt
+            ai-stack/lib/rag_auth/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.workdir }}
+        run: ${{ matrix.install }}
+
+      - name: Run pytest
+        working-directory: ${{ matrix.workdir }}
+        run: pytest -v
