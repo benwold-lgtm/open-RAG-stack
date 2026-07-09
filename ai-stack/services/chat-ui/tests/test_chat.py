@@ -27,10 +27,11 @@ def app_env(tmp_path, monkeypatch):
 
 
 def _stub_agent(main, monkeypatch, answer="Hello world from RAG", capture=None):
-    async def fake(messages, model):
+    async def fake(messages, model, web_search=False):
         if capture is not None:
             capture["messages"] = messages
             capture["model"] = model
+            capture["web_search"] = web_search
         return {"choices": [{"message": {"role": "assistant", "content": answer}}],
                 "sources": [], "citations": []}
     monkeypatch.setattr(main, "_agent_chat", fake)
@@ -126,6 +127,19 @@ def test_chat_honours_explicit_model(app_env):
     assert cap["model"] == "llama-70b"
 
 
+def test_chat_forwards_web_search_toggle(app_env):
+    main, c, mp = app_env
+    cap = {}
+    _stub_agent(main, mp, capture=cap)
+    cid = c.post("/api/conversations", json={}).json()["id"]
+
+    c.post("/api/chat", json={"conversation_id": cid, "content": "hi"})
+    assert cap["web_search"] is False  # default: grounded, RAG-only
+
+    c.post("/api/chat", json={"conversation_id": cid, "content": "hi again", "web_search": True})
+    assert cap["web_search"] is True
+
+
 # ── guards + errors ───────────────────────────────────────────────────────────
 def test_chat_unknown_conversation_404(app_env):
     main, c, mp = app_env
@@ -155,7 +169,7 @@ def test_chat_other_users_conversation_404(app_env):
 def test_chat_agent_down_returns_502_and_no_assistant_message(app_env):
     main, c, mp = app_env
 
-    async def boom(messages, model):
+    async def boom(messages, model, web_search=False):
         raise httpx.ConnectError("ai-agent unreachable")
     mp.setattr(main, "_agent_chat", boom)
 
