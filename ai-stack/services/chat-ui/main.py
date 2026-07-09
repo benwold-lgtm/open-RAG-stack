@@ -71,6 +71,11 @@ _SERVICE_AUTH = {"Authorization": f"Bearer {SERVICE_TOKEN}"} if SERVICE_TOKEN el
 # Default model for /api/chat when the client doesn't name one; empty = discover from ai-agent.
 DEFAULT_MODEL = os.environ.get("CHAT_DEFAULT_MODEL", "")
 AGENT_TIMEOUT = float(os.environ.get("AI_AGENT_TIMEOUT", "120"))  # LLM answers can be slow
+# Char budget for the history re-fed to the agent each turn (newest kept). Without a cap,
+# a long conversation eventually overflows the model's context window (vLLM ships with
+# --max-model-len 8192) and every later message fails as a 502 — a dead-end for the user.
+# ~16k chars ≈ 4k tokens, leaving room for the system prompt + retrieved chunks + answer.
+HISTORY_MAX_CHARS = int(os.environ.get("CHAT_HISTORY_MAX_CHARS", "16000"))
 STREAM_DELAY = float(os.environ.get("CHAT_STREAM_DELAY", "0.01"))  # word-replay pacing (UX)
 BRAND_NAME = os.environ.get("BRAND_NAME", "Open RAG Chat")
 BRAND_PRIMARY_COLOR = os.environ.get("BRAND_PRIMARY_COLOR", "#2563eb")
@@ -1094,6 +1099,13 @@ def _history_for_agent(conv_id: int) -> list[dict]:
     for m in list_messages(conv_id):
         text = _strip_citation_trailer(m["content"]) if m["role"] == "assistant" else m["content"]
         out.append({"role": m["role"], "content": text})
+    # Sliding window: keep the newest turns within HISTORY_MAX_CHARS. The newest message
+    # is always kept, even alone over budget — better one oversized request than none.
+    total = 0
+    for i in range(len(out) - 1, -1, -1):
+        total += len(out[i]["content"])
+        if total > HISTORY_MAX_CHARS and i < len(out) - 1:
+            return out[i + 1:]
     return out
 
 
