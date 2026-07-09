@@ -127,6 +127,27 @@ def test_chat_honours_explicit_model(app_env):
     assert cap["model"] == "llama-70b"
 
 
+def test_chat_history_keeps_only_recent_turns_within_budget(app_env):
+    main, c, mp = app_env
+    cap = {}
+    _stub_agent(main, mp, answer="ok", capture=cap)
+    mp.setattr(main, "HISTORY_MAX_CHARS", 20)
+    cid = c.post("/api/conversations", json={}).json()["id"]
+
+    c.post("/api/chat", json={"conversation_id": cid, "content": "a" * 25})  # alone over budget
+    c.post("/api/chat", json={"conversation_id": cid, "content": "second"})
+    # The 25-char opener would blow the 20-char budget, so only the newer turns are re-fed.
+    assert cap["messages"] == [
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "second"},
+    ]
+
+    # The newest message is always sent, even when it alone exceeds the budget.
+    mp.setattr(main, "HISTORY_MAX_CHARS", 1)
+    c.post("/api/chat", json={"conversation_id": cid, "content": "third"})
+    assert cap["messages"] == [{"role": "user", "content": "third"}]
+
+
 def test_chat_forwards_web_search_toggle(app_env):
     main, c, mp = app_env
     cap = {}

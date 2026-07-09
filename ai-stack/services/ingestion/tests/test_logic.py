@@ -7,6 +7,7 @@ Async helpers are driven with asyncio.run() so no asyncio pytest plugin is neede
 import asyncio
 import io
 
+import aiosqlite
 import pytest
 
 import main
@@ -173,3 +174,40 @@ def test_pdf_doc_title_drops_generic_and_filename_like():
     assert main._pdf_doc_title(_Doc("h20163-genAI-Redis-RAG.drd.pdf")) == ""
     assert main._pdf_doc_title(_Doc("")) == ""
     assert main._pdf_doc_title(_Doc(None)) == ""
+
+
+# ── lexical search: FTS5 query quoting ────────────────────────────────────────
+def test_fts_query_quotes_every_token():
+    # Hyphens/colons/quotes are FTS5 syntax when bare; quoting neutralises them.
+    assert main._fts_query("bge-reranker-v2") == '"bge-reranker-v2"'
+    assert main._fts_query('a "quoted" -term c:d') == '"a" "quoted" "-term" "c:d"'
+    assert main._fts_query("   ") == ""
+
+
+def _lexical(tmp_path, monkeypatch, query):
+    """Run lexical_search against a real (temp) FTS5 table with one indexed row."""
+    monkeypatch.setattr(main, "DB_PATH", str(tmp_path / "ingestion.db"))
+
+    async def run():
+        await main.init_db()
+        async with aiosqlite.connect(main.DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO fts(point_id, collection, url, content, title, vendor, doc_id) "
+                "VALUES (?,?,?,?,?,?,?)",
+                ("1", "docs", "http://x", "the bge-reranker-v2-m3 cross-encoder", "t", "v", "d"),
+            )
+            await db.commit()
+        return await main.lexical_search(q=query)
+
+    return asyncio.run(run())
+
+
+def test_lexical_search_matches_hyphenated_term(tmp_path, monkeypatch):
+    # Regression: bare hyphens raised an FTS5 syntax error, silently returning [].
+    res = _lexical(tmp_path, monkeypatch, "bge-reranker-v2-m3")
+    assert [r["point_id"] for r in res["results"]] == ["1"]
+
+
+def test_lexical_search_unbalanced_quote_returns_empty_not_error(tmp_path, monkeypatch):
+    res = _lexical(tmp_path, monkeypatch, 'he said "nonexistent')
+    assert res["results"] == []
