@@ -149,6 +149,20 @@ else
   warn "  If running air-gapped, pre-download models and mount them manually"
 fi
 
+# ── Chart values still on placeholders ─────────────────────────────────────────
+info "Checking chart values for unedited placeholders..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLACEHOLDER_FILES=$(grep -rl '<your-' "${SCRIPT_DIR}/../ai-stack/charts" --include=values.yaml 2>/dev/null || true)
+if [[ -n "$PLACEHOLDER_FILES" ]]; then
+  warn "These values.yaml files still contain '<your-...>' placeholders:"
+  while IFS= read -r f; do warn "  ${f#"${SCRIPT_DIR}/../"}"; done <<< "$PLACEHOLDER_FILES"
+  warn "  Pods will not schedule until nodeSelector points at a real node. While editing,"
+  warn "  also set vllm-server model.name and ai-agent vllm.baseUrl/model (they default"
+  warn "  to empty) — see README 'Quick start' and 'Choosing a model'."
+else
+  ok "No unedited placeholders in chart values"
+fi
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo
 echo "─────────────────────────────────────────────────────────────────"

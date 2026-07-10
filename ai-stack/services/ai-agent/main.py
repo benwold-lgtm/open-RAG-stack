@@ -53,8 +53,11 @@ def _guard(scope: str):
 _SERVICE_AUTH = {"Authorization": f"Bearer {SERVICE_TOKEN}"} if SERVICE_TOKEN else {}
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-VLLM_BASE_URL  = os.getenv("VLLM_BASE_URL")   # e.g. http://<gpu-node-ip>:30000/v1
-VLLM_MODEL     = os.getenv("VLLM_MODEL")       # HuggingFace model ID served by vllm-server
+VLLM_BASE_URL  = os.getenv("VLLM_BASE_URL")   # any OpenAI-compatible endpoint, e.g. http://<gpu-node-ip>:30000/v1
+VLLM_MODEL     = os.getenv("VLLM_MODEL")       # model ID served by that endpoint
+# API key for the endpoint. The bundled local vLLM ignores it; set it when pointing
+# VLLM_BASE_URL at a hosted OpenAI-compatible endpoint that requires auth.
+VLLM_API_KEY   = os.getenv("VLLM_API_KEY") or "not-needed"
 QDRANT_URL     = os.getenv("QDRANT_URL",     "http://qdrant.qdrant.svc.cluster.local:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 EMBEDDING_URL  = os.getenv("EMBEDDING_URL",  "http://embedding.embedding.svc.cluster.local:8001")
@@ -182,7 +185,7 @@ async def rewrite_query(query: str) -> str:
     """Rewrite the user's query into a keyword-rich retrieval query via the LLM.
     Falls back to the original query on any error."""
     try:
-        client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
+        client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key=VLLM_API_KEY)
         response = await client.chat.completions.create(
             model=VLLM_MODEL,
             messages=[
@@ -468,7 +471,7 @@ async def run_agent(
     top_p: Optional[float] = None,
     allow_web: bool = False,
 ) -> tuple[str, list[dict]]:
-    client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
+    client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key=VLLM_API_KEY)
     if temperature is None:
         temperature = AGENT_DEFAULT_TEMPERATURE
 

@@ -149,7 +149,8 @@ services:
     restart: unless-stopped
     command:
       - "--model"
-      - "${LLM_MODEL}"
+      # Fail fast with a clear message if .env was not configured.
+      - "${LLM_MODEL:?Set LLM_MODEL in .env — see README section Choosing a model}"
       - "--download-dir"
       - "/models/huggingface/hub"
       - "--max-model-len"
@@ -190,8 +191,12 @@ services:
     image: ghcr.io/benwold-lgtm/open-rag-ai-agent:latest
     restart: unless-stopped
     environment:
-      VLLM_BASE_URL: http://vllm:8000/v1
+      # Any OpenAI-compatible endpoint. Default: the bundled vLLM. Point VLLM_BASE_URL
+      # at a remote/hosted endpoint in .env (and set VLLM_API_KEY if it requires auth)
+      # to run without a local GPU — see README "Choosing a model".
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000/v1}
       VLLM_MODEL: ${LLM_MODEL}
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ""
       EMBEDDING_URL: http://embedding:8001

@@ -139,13 +139,25 @@ In practice: a single GPU node with a **24 GB card**, ~**32–48 GB system RAM**
 
 A few decisions to make up front — each maps to a value you'll set during configuration:
 
-- **LLM + where it runs** — by default, vLLM serves a Hugging Face model locally on your GPU. Alternatively, point `ai-agent` at any OpenAI-compatible endpoint (another host or a hosted API) via `VLLM_BASE_URL`. Either way, decide the model ID.
-- **Embedding model** — defaults to `nomic-embed-text-v1.5` (768 dims). If you change it, update `ingestion` `embeddingDim` to match.
+- **LLM + where it runs** — by default, vLLM serves a Hugging Face model locally on your GPU. Alternatively, point `ai-agent` at any OpenAI-compatible endpoint (another host or a hosted API) via `VLLM_BASE_URL` + `VLLM_API_KEY`. Either way, decide the model ID — see [Choosing a model](#choosing-a-model).
+- **Embedding model** — defaults to `nomic-embed-text-v1.5` (768 dims). Swapping it takes more than config: update `ingestion` `embeddingDim` to match *and re-ingest*, and note the embedding service hardcodes nomic's `search_document:` / `search_query:` prefixes ([embedding/main.py](ai-stack/services/embedding/main.py)) — other model families (BGE, e5, …) expect different or no prefixes, so adjust that logic too.
 - **Web search provider** — pick one (Brave, SearXNG, Serper, Tavily) or none. All but SearXNG need an API key; RAG search over your own documents works without any.
 - **Vector DB API key** — you choose the `QDRANT_API_KEY` value at bootstrap (any string).
 - **Storage** — local disk on the GPU node. All charts use the `local-path` StorageClass (installed by bootstrap if not present). No NFS required.
 - **GPU node + access IP** — the node hostname for `nodeSelector`, and its IP (`NODE_IP`) for NodePort access.
 - **Container images** — use the project's published `open-rag-*` images, or fork and let CI build your own.
+
+### Choosing a model
+
+The stack is deliberately model-agnostic: no model is baked in, and the right choice depends on your hardware, language, and quality needs. What actually matters here:
+
+- **Any OpenAI-compatible endpoint works.** The default is the bundled vLLM serving a Hugging Face model on your GPU. You can instead point `ai-agent` at another host (vLLM, Ollama, LM Studio) or a hosted API via `VLLM_BASE_URL` — set `VLLM_API_KEY` if the endpoint requires auth. Trade-off: with a hosted API your queries **and the retrieved document context** leave your network, giving up the air-gap/privacy properties this stack is built around.
+- **Pick an instruction-tuned chat model.** Base (non-instruct) models won't follow the agent's answer-grounding instructions.
+- **Tool-call formatting must be reliable.** The agent asks the model to emit `<tool_call>` JSON and parses it from the text ([ai-agent/main.py](ai-stack/services/ai-agent/main.py), `extract_tool_calls`). Models vary in how consistently they do this — after deploying, verify with a few `./scripts/rag-query.sh` questions that answers actually cite your documents (that proves `rag_search` fired).
+- **Reasoning models need one extra switch.** Models that emit `<think>…</think>` blocks require the `strip_think_tags` line enabled in `run_agent` (see the comment in the code) so reasoning text doesn't leak into answers or break tool parsing.
+- **Size to your VRAM.** As a rule of thumb, a 24 GB card shared with the embedding + reranker services runs a 7B–14B-class model comfortably (that's what the default `--gpu-memory-utilization 0.70` is tuned for); a dedicated or larger card supports bigger models or longer context.
+
+Changing the model later is cheap: update `LLM_MODEL` (Compose) or the two values files (Helm) and restart vLLM — no re-ingestion needed, since embeddings are a separate model.
 
 ---
 
@@ -158,7 +170,7 @@ Edit each chart's `values.yaml` before deploying. At minimum:
 **`ai-stack/charts/vllm-server/values.yaml`**
 ```yaml
 model:
-  name: "mistralai/Mistral-7B-Instruct-v0.3"   # or any HF model on Hugging Face
+  name: "<your-model-id>"   # any HF model vLLM can serve — see "Choosing a model" above
 
 nodeSelector:
   kubernetes.io/hostname: your-gpu-node
@@ -167,8 +179,8 @@ nodeSelector:
 **`ai-stack/charts/ai-agent/values.yaml`**
 ```yaml
 vllm:
-  baseUrl: "http://<gpu-node-ip>:30000/v1"
-  model: "mistralai/Mistral-7B-Instruct-v0.3"
+  baseUrl: "http://<gpu-node-ip>:30000/v1"   # or any OpenAI-compatible endpoint
+  model: "<your-model-id>"
 
 nodeSelector:
   kubernetes.io/hostname: your-gpu-node

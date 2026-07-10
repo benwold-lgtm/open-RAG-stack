@@ -12,8 +12,11 @@ service:
   nodePort: 30081    # expose on this port on each node
 
 vllm:
+  # Any OpenAI-compatible endpoint: the bundled vllm-server (http://<gpu-node-ip>:30000/v1),
+  # or a remote/hosted one. See README "Choosing a model". For a hosted endpoint that
+  # requires auth, add a VLLM_API_KEY key to the ai-agent-secrets secret.
   baseUrl: ""          # e.g. http://<gpu-node-ip>:30000/v1
-  model: ""            # HuggingFace model ID loaded by vllm-server
+  model: ""            # model ID served by that endpoint (HF model ID for local vLLM)
 
 # Holds the shared SERVICE_TOKEN (and the QDRANT_API_KEY / web-search keys). bootstrap.sh
 # writes SERVICE_TOKEN here; the same value goes into ingestion / chat-ui / rag-admin secrets.
