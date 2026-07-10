@@ -37,6 +37,15 @@ spec:
               value: {{ .Values.vllm.baseUrl | quote }}
             - name: VLLM_MODEL
               value: {{ .Values.vllm.model | quote }}
+            # API key for the OpenAI-compatible endpoint. optional:true — the bundled
+            # local vLLM needs none; add a VLLM_API_KEY key to the secret only when
+            # vllm.baseUrl points at a hosted endpoint that requires auth.
+            - name: VLLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: VLLM_API_KEY
+                  optional: true
             - name: WEB_SEARCH_PROVIDER
               value: {{ .Values.webSearch.provider | quote }}
             {{- if eq .Values.webSearch.provider "searxng" }}
