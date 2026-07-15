@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+# Keep binary assets untouched
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Windows-only scripts, if any, stay CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf

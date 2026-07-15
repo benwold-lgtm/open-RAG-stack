@@ -154,13 +154,16 @@ services:
       - "--download-dir"
       - "/models/huggingface/hub"
       - "--max-model-len"
-      - "8192"
+      # Lowered from 8192: on a 24GB card shared with embedding + reranker, 8192 left too little
+      # headroom and could OOM. Raise back up on a dedicated/larger card (e.g. L40S).
+      - "6144"
       # Default 0.70 leaves room for embedding + reranker on the same GPU.
       # Bump toward 0.90 on a dedicated/larger card (e.g. L40S) via VLLM_GPU_UTIL in .env.
       - "--gpu-memory-utilization"
       - "${VLLM_GPU_UTIL:-0.70}"
       - "--max-num-seqs"
-      - "4"
+      # Lowered from 4 for the same GPU-memory-headroom reason as max-model-len above.
+      - "2"
     environment:
       HF_HOME: /models/huggingface
     volumes:
