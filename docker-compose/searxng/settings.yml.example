@@ -1,0 +1,27 @@
+# SearXNG settings for the docker compose deployment -- TEMPLATE.
+#
+# Copy this file before editing; the copy is gitignored so an operator's real
+# secret_key never becomes a tracked change:
+#
+#   cp docker-compose/searxng/settings.yml.example docker-compose/searxng/settings.yml
+#
+# Then put a random value in secret_key (it is CSRF protection, not a shared
+# credential -- any 32 bytes of entropy will do):
+#
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+#
+# Finally set WEB_SEARCH_PROVIDER=searxng in .env to enable the service.
+# The whole docker-compose/searxng directory is mounted read-only at
+# /etc/searxng, so this .example file rides along harmlessly.
+
+use_default_settings: true
+
+server:
+  secret_key: "<your-secret-key>"
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json

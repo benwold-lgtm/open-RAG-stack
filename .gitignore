@@ -23,3 +23,6 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 .download.log
+
+# SearXNG operator config -- copied from settings.yml.example, holds a real secret_key
+docker-compose/searxng/settings.yml
