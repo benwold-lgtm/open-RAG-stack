@@ -56,15 +56,32 @@ Query & response path
     • vector search       → Qdrant              (:30333)
     • lexical search BM25 → ingestion SQLite FTS5 (:30083)
     • fuse (RRF) + rerank → reranker            (:30084, bge-reranker-v2-m3) → top-5
+      (diagram-intent queries reserve one top-5 slot for a caption/image page)
     • generate answer     → vLLM                (:30000, local LLM)
   ai-agent → chat-ui: answer + sources + verified citations
-  optional: web_search   → SearXNG             (:8080, off by default)
+  optional: web_search   → SearXNG             (:8080, per-conversation toggle,
+                                                default off)
 
 Ingestion pipeline
   Sources: Watch folder (drop) · Web URLs (/ingest, /ingest/deep) · RAG Admin UI (:8005)
-    → ingestion service (:30083): PyMuPDF + Tesseract OCR, recursive chunk 256/64, page-aware
+    → ingestion service (:30083): DOCX/PPTX → PDF (headless LibreOffice),
+      PyMuPDF + Tesseract OCR fallback, recursive chunk 256/64, page-aware,
+      figure/table captions indexed as their own retrieval units
         → embedding service → Qdrant      (vector index)
         → SQLite FTS5                     (BM25 lexical index)
+        → doc store (optional)            (originals + derived PDFs, browsable)
+
+Auth & ops
+  chat-ui          OIDC (auth-code + PKCE) + local accounts + break-glass admin,
+                   authorized on scopes; optional Ingress + TLS
+  rag-admin        HTTP Basic (optional)
+  data plane       ai-agent (chat:use) and all ingestion data routes
+                   (ingest:read / ingest:write / docs:manage) require
+                   Authorization: Bearer $SERVICE_TOKEN; fails closed at boot in
+                   production unless ALLOW_ANONYMOUS=true
+  open routes      /health, page images, /documents/{id}/file — no token, because
+                   the browser loads them directly (set INGESTION_PUBLIC_URL)
+  metrics          Prometheus /metrics on the first-party services
 
 Logical flow is identical for Docker Compose and Kubernetes; only the physical
 layout differs (GPU sharing, host ports vs NodePorts). See the diagram's
