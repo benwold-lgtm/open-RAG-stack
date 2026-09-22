@@ -268,8 +268,10 @@ services:
 
   # ── Web search — optional ─────────────────────────────────────────────────────
   # Disabled by default (WEB_SEARCH_PROVIDER defaults to none).
-  # To enable: set WEB_SEARCH_PROVIDER=searxng in .env,
-  # then update docker-compose/searxng/settings.yml with a real secret_key.
+  # To enable: set WEB_SEARCH_PROVIDER=searxng in .env, then
+  #   cp docker-compose/searxng/settings.yml.example docker-compose/searxng/settings.yml
+  # and give the copy a real secret_key. settings.yml is gitignored, so your key
+  # stays local and never shows up as a modified tracked file.
   searxng:
     image: searxng/searxng:latest
     restart: unless-stopped

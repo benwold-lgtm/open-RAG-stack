@@ -31,11 +31,11 @@
                 <mxCell id="engineer" value="AI Engineer" style="shape=mxgraph.uml.actor;whiteSpace=wrap;html=1;fillColor=#005D5D;strokeColor=#003D3D;fontColor=#002424;fontStyle=1;fontSize=12;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;" parent="1" vertex="1">
                     <mxGeometry x="64" y="748" width="48" height="64" as="geometry"/>
                 </mxCell>
-                <mxCell id="owui" value="&lt;b&gt;chat-ui&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;first-party chat · auth · citations&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
+                <mxCell id="owui" value="&lt;b&gt;chat-ui&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;first-party chat · OIDC / local auth · citations&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
                     <mxGeometry x="180" y="225" width="170" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="agent" value="&lt;b&gt;AI Agent Service&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#A8C7FF&quot; style=&quot;font-size:10px;&quot;&gt;RAG orchestrator · hybrid retrieval&lt;br&gt;RRF · rerank · verified citations&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#0043CE;strokeColor=#00236B;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" parent="1" vertex="1">
-                    <mxGeometry x="445" y="215" width="190" height="80" as="geometry"/>
+                <mxCell id="agent" value="&lt;b&gt;AI Agent Service&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#A8C7FF&quot; style=&quot;font-size:10px;&quot;&gt;RAG orchestrator · hybrid retrieval&lt;br&gt;RRF · rerank · diagram-intent slot&lt;br&gt;verified citations · scope-guarded API&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#0043CE;strokeColor=#00236B;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="425" y="212" width="230" height="86" as="geometry"/>
                 </mxCell>
                 <mxCell id="vllm" value="&lt;b&gt;vLLM Server&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#C8DFFF&quot; style=&quot;font-size:10px;&quot;&gt;local LLM inference (GPU)&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#0F62FE;strokeColor=#0043CE;strokeWidth=2;fontColor=#FFFFFF;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;" parent="1" vertex="1">
                     <mxGeometry x="800" y="165" width="200" height="58" as="geometry"/>
@@ -49,7 +49,7 @@
                 <mxCell id="qdrant" value="&lt;b&gt;Qdrant&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;Vector DB&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#EDF5FF;strokeColor=#0043CE;strokeWidth=2;fontSize=12;verticalAlign=middle;fontColor=#0043CE;" parent="1" vertex="1">
                     <mxGeometry x="1090" y="270" width="160" height="92" as="geometry"/>
                 </mxCell>
-                <mxCell id="searxng" value="&lt;b&gt;SearXNG&lt;/b&gt; &lt;font style=&quot;font-size:9px;&quot;&gt;(optional)&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;self-hosted web search · off by default&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#525252;" parent="1" vertex="1">
+                <mxCell id="searxng" value="&lt;b&gt;SearXNG&lt;/b&gt; &lt;font style=&quot;font-size:9px;&quot;&gt;(optional)&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;self-hosted web search · per-conversation toggle (default off)&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#525252;" parent="1" vertex="1">
                     <mxGeometry x="800" y="520" width="200" height="56" as="geometry"/>
                 </mxCell>
                 <mxCell id="watch" value="&lt;b&gt;Watch Folder&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;drop folder · /&amp;lt;vendor&amp;gt;/&lt;/font&gt;" style="rounded=1;arcSize=8;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#393939;" parent="1" vertex="1">
@@ -61,8 +61,8 @@
                 <mxCell id="ragadmin" value="&lt;b&gt;RAG Admin UI&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;upload · manage · delete&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=11;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
                     <mxGeometry x="180" y="735" width="175" height="54" as="geometry"/>
                 </mxCell>
-                <mxCell id="ingest" value="&lt;b&gt;Ingestion Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;PyMuPDF + Tesseract OCR&lt;br&gt;recursive chunk 256/64 · page-aware&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
-                    <mxGeometry x="445" y="600" width="190" height="80" as="geometry"/>
+                <mxCell id="ingest" value="&lt;b&gt;Ingestion Service&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;PyMuPDF + Tesseract OCR · LibreOffice&lt;br&gt;chunk 256/64 · page-aware · figure captions&lt;br&gt;scope-guarded API&lt;/font&gt;" style="rounded=1;arcSize=15;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=12;html=1;whiteSpace=wrap;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
+                    <mxGeometry x="425" y="596" width="230" height="88" as="geometry"/>
                 </mxCell>
                 <mxCell id="fts5" value="&lt;b&gt;SQLite FTS5&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;BM25 lexical index&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#D9F0F0;strokeColor=#005D5D;strokeWidth=2;fontSize=11;verticalAlign=middle;fontColor=#003D3D;" parent="1" vertex="1">
                     <mxGeometry x="465" y="745" width="150" height="82" as="geometry"/>
@@ -141,6 +141,21 @@
                 <mxCell id="emng" value="manages" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" parent="1" source="engineer" target="ragadmin" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
+                <mxCell id="docstore" value="&lt;b&gt;Doc Store&lt;/b&gt; &lt;font style=&quot;font-size:9px;&quot;&gt;(optional)&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px;&quot;&gt;original uploads + derived PDFs&lt;br&gt;browsable · serves source-file links&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#F4F4F4;strokeColor=#697689;strokeWidth=2;dashed=1;fontSize=11;verticalAlign=middle;fontColor=#525252;" parent="1" vertex="1">
+                    <mxGeometry x="800" y="620" width="200" height="86" as="geometry"/>
+                </mxCell>
+                <mxCell id="e13" value="⑬ store original&lt;br&gt;+ derived PDF" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#005D5D;strokeWidth=1.5;fontColor=#005D5D;fontSize=10;endArrow=block;endFill=1;dashed=1;dashPattern=6 3;exitX=1;exitY=0.75;entryX=0;entryY=0.5;" parent="1" source="ingest" target="docstore" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sec_bg" value="" style="rounded=1;arcSize=6;fillColor=#FFF8E1;strokeColor=#B28600;strokeWidth=1;" parent="1" vertex="1">
+                    <mxGeometry x="1300" y="592" width="300" height="326" as="geometry"/>
+                </mxCell>
+                <mxCell id="sec_title" value="Security &amp;amp; operations" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontStyle=1;fontSize=11;fontColor=#B28600;" parent="1" vertex="1">
+                    <mxGeometry x="1314" y="600" width="270" height="18" as="geometry"/>
+                </mxCell>
+                <mxCell id="sec_body" value="&lt;b&gt;Data plane&lt;/b&gt; — ai-agent (&lt;i&gt;chat:use&lt;/i&gt;) and every ingestion data route (&lt;i&gt;ingest:read / ingest:write / docs:manage&lt;/i&gt;) require &lt;b&gt;Authorization: Bearer $SERVICE_TOKEN&lt;/b&gt;. Fails closed at boot in production unless ALLOW_ANONYMOUS=true (trusted-LAN escape hatch). chat-ui, rag-admin and the helper scripts forward the token.&lt;br&gt;&lt;br&gt;&lt;b&gt;Open routes&lt;/b&gt; — /health, page images and /documents/{id}/file carry no token: the browser loads them directly, so set INGESTION_PUBLIC_URL for citations to resolve.&lt;br&gt;&lt;br&gt;&lt;b&gt;Users&lt;/b&gt; — chat-ui: OIDC (auth-code + PKCE) + local accounts + break-glass admin, authorized on scopes. rag-admin: HTTP Basic (optional).&lt;br&gt;&lt;br&gt;&lt;b&gt;Ops&lt;/b&gt; — Prometheus /metrics on the first-party services · optional Ingress + TLS for chat-ui · NetworkPolicy templates (default off)." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontColor=#393939;whiteSpace=wrap;spacingLeft=2;" parent="1" vertex="1">
+                    <mxGeometry x="1314" y="620" width="276" height="290" as="geometry"/>
+                </mxCell>
                 <mxCell id="leg_bg" value="" style="rounded=1;arcSize=6;fillColor=#FFFFFF;strokeColor=#C0C0C0;strokeWidth=1;" parent="1" vertex="1">
                     <mxGeometry x="1300" y="160" width="300" height="120" as="geometry"/>
                 </mxCell>
@@ -175,13 +190,13 @@
                     <mxGeometry x="1370" y="239" width="180" height="18" as="geometry"/>
                 </mxCell>
                 <mxCell id="dep_bg" value="" style="rounded=1;arcSize=4;fillColor=#F0F7FF;strokeColor=#0043CE;strokeWidth=1.5;" parent="1" vertex="1">
-                    <mxGeometry x="1300" y="310" width="300" height="220" as="geometry"/>
+                    <mxGeometry x="1300" y="310" width="300" height="252" as="geometry"/>
                 </mxCell>
                 <mxCell id="dep_title" value="Deployment notes" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontStyle=1;fontSize=11;fontColor=#0043CE;whiteSpace=wrap;" parent="1" vertex="1">
                     <mxGeometry x="1314" y="318" width="270" height="18" as="geometry"/>
                 </mxCell>
-                <mxCell id="dep_body" value="The logical flow above is the same on both targets. Physical differences:&lt;br&gt;&lt;br&gt;&lt;b&gt;GPU&lt;/b&gt; — Compose runs vLLM + embedding + reranker on one shared GPU (gpu-mem-util 0.70). K8s gives vLLM the GPU exclusively; embedding + reranker run CPU-only (util 0.90).&lt;br&gt;&lt;br&gt;&lt;b&gt;Access&lt;/b&gt; — Compose maps host ports (chat-ui :3001, rag-admin :8005, agent :8004, ingestion :8002, qdrant :6333). K8s exposes NodePorts (:30086 / :30085 / :30081 / :30083 / :30333).&lt;br&gt;&lt;br&gt;&lt;b&gt;SearXNG&lt;/b&gt; web search is optional, off by default." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontColor=#393939;whiteSpace=wrap;spacingLeft=2;" parent="1" vertex="1">
-                    <mxGeometry x="1314" y="338" width="276" height="180" as="geometry"/>
+                <mxCell id="dep_body" value="The logical flow above is the same on both targets. Physical differences:&lt;br&gt;&lt;br&gt;&lt;b&gt;GPU&lt;/b&gt; — Compose runs vLLM + embedding + reranker on one shared GPU (gpu-mem-util 0.70). K8s gives vLLM the GPU exclusively; embedding + reranker run CPU-only (util 0.90).&lt;br&gt;&lt;br&gt;&lt;b&gt;Access&lt;/b&gt; — Compose maps host ports (chat-ui :3001, rag-admin :8005, agent :8004, ingestion :8002, qdrant :6333). K8s exposes NodePorts (:30086 / :30085 / :30081 / :30083 / :30333).&lt;br&gt;&lt;br&gt;&lt;b&gt;SearXNG&lt;/b&gt; web search is optional; per-conversation toggle, default off.&lt;br&gt;&lt;br&gt;&lt;b&gt;Doc store&lt;/b&gt; — optional on both (NFS or hostPath); off by default." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;fontSize=10;fontColor=#393939;whiteSpace=wrap;spacingLeft=2;" parent="1" vertex="1">
+                    <mxGeometry x="1314" y="338" width="276" height="214" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>
