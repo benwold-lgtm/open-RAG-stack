@@ -1,8 +1,8 @@
 # Open-RAG-Stack Enhancement Plan
 ## Goal: NVIDIA Blueprint Parity — Fully Internal Deployment
 
-**Last Updated:** 2026-07-21
-**Status:** Phases 1–10 complete. Retrieval, citations, chat UI, auth and operability all validated on the GPU node (RTX 3090).
+**Last Updated:** 2026-09-22
+**Status:** Phases 1–10 complete; **Phase 11 is a proposal, not started**. Retrieval, citations, chat UI, auth and operability all validated on the GPU node (RTX 3090).
 **Maintained by:** open-RAG-stack contributors
 
 > **Program closeout (2026-06-24).** Shipped & validated end-to-end: hybrid search + reranker (Phases 2–4), page-aware PDF parsing with OCR fallback (4c), image + page citations in chat (4d), verified citations (4e), and an eval/benchmark harness (Phase 5). Phase 6 tuned retrieval: chunk size 256 and query-rewrite-off lifted page-level hit@5 from 0.770 → 0.820. Retrieval is well-tuned; the next quality lever is the LLM (generation), which is a hardware/model call, not a code one. See **Deployment Notes** for the Compose↔K8s parity audit.
@@ -10,6 +10,8 @@
 > **Phase 7 closed (2026-06-27).** Operating the rag-admin UI surfaced gaps — no K8s chart, no move/rename for collections, opaque ingestion failures, no table sort/filter, no auth. All closed; see below.
 >
 > **Phases 8–10 (2026-06-28 → 2026-07-21).** Open-WebUI replaced by a first-party `chat-ui` on a shared `rag_auth` module (Phase 8); the stack hardened for production — data-plane auth, backup/restore, supply-chain scanning, observability, AGPL relicense (Phase 9); and a run of defects found by actually operating it — a silently-dropped BM25 channel, a blocking event loop, a self-disabling `rag_search`, and a Helm path that deployed a degraded stack (Phase 10).
+>
+> **Phase 11 proposed (2026-09-22) — no code written.** A correctness-first retrieval phase, written up after reviewing CRAG / Self-RAG / GraphRAG against this stack's actual audience (IT solution architects, where a wrong answer lands in a design). Recommends CRAG-style retrieval grading with abstention plus claim-level grounding, and rejects GraphRAG on traceability grounds. Parked until there is appetite for the latency.
 >
 > **Still parked:** contextual retrieval (4.6/6.4/6.6 — diminishing returns vs effort), dense-vs-lexical rewrite routing (6.6), and the L40S production model.
 
@@ -382,6 +384,35 @@ Reading: (1) **reranker earns its place** — the only component whose removal m
 
 ---
 
+### Phase 11: Correctness-First Retrieval — CRAG + Claim-Level Grounding (proposed 2026-09-22, not started)
+
+> **Status: proposal only. No code has been written for this phase.** Recorded now so the reasoning survives; revisit when there is appetite for the latency cost.
+>
+> **Context.** The stack's users are IT solution architects, and a wrong answer here is not an annoyance — it gets incorporated into a design and can cost six figures to unwind. That raises the bar above "good retrieval" (Phases 2–6, done) to "never answer confidently from a thin or mismatched corpus."
+>
+> **The failure mode this phase targets** is *not* naked fabrication — Phase 4e's verified citations and Phase 10.2's prompt hardening already blunt that. It is the quieter one: an architect asks whether a platform supports a topology at some scale; the KB holds the vendor's docs but not *that* doc, or holds the one for a different software train. Retrieval returns five chunks that are genuinely about the right platform and score respectably. The model writes a confident, well-cited answer grounded in text that is real, relevant-looking, and **about the wrong version**. Nothing in the pipeline can fail that query today.
+>
+> **The gap, concretely.** `run_rag_search` (`ai-agent/main.py`) returns its top-5 unconditionally. The only abstention path is the `"No relevant documents found."` string, which fires solely when *both* the vector and lexical legs come back empty. There is no state in this system meaning *"I retrieved things, and they aren't good enough."* That missing state is the whole of this phase.
+
+**Recommendation: CRAG as the backbone, plus a hardened Self-RAG-style support check as the output gate. Not GraphRAG.**
+
+| # | Work item | Status | Notes |
+|---|---|---|---|
+| 11.1 | **Build the instrument before the machinery** — groundedness + abstention metrics in `eval/` | 📋 Proposed | `run_eval.py` measures `hit@5` / `mrr@5` / `hit@20` — pure *retrieval* metrics. **The harness cannot currently detect a hallucination at all**, because it never inspects a generated answer. Needs: unanswerable questions in the eval set with gold label "should abstain", a groundedness score over generated answers, and version-mismatch distractors (the right platform, the wrong train) as explicit negatives. Ship this first — without it, a grader can be added and there is no way to tell whether it helped. For a stack whose thesis is correctness, this is the real gap, larger than any of the published architectures |
+| 11.2 | **Version / platform metadata at ingest + congruence gate** | 📋 Proposed | The chunk payload (`ingestion/main.py`) carries `doc_id`, `url`, `title`, `collection`, `vendor`, `page`, `kind`, `access_roles`, `classification`, `source_type`, `ingested_at` — **no product version and no platform**. For the version-mismatch failure above a generic semantic relevance grader is useless: the chunk *is* relevant, it is simply for the wrong train. Extract version/platform at ingest and make congruence with the query an explicit gate. This is the domain-specific piece that neither CRAG nor Self-RAG supplies, and for this audience it is probably worth more than either |
+| 11.3 | **CRAG retrieval-evaluator gate + abstention** | 📋 Proposed | Grade the retrieved set, then branch three ways: confident → answer; ambiguous → decompose and re-retrieve, then web search; poor → **abstain**, stating the KB does not cover it and surfacing the near-misses so the architect knows what to ingest. Two implementation notes: (a) grade from the **reranker's** scores, not the fused score — `_rrf_merge` fuses *ranks*, so its output is not a calibrated relevance signal; (b) `bge-reranker-v2-m3` emits raw logits, so the threshold must be calibrated against the labelled eval set from 11.1 (likely per-collection), not picked by hand. For this audience a clean "not in the knowledge base" is a **feature** — it routes the architect to the vendor's docs instead of into a design review holding a wrong number |
+| 11.4 | **Claim-level entailment on the way out** | 📋 Proposed | `verify_citations` already does the right kind of check — normalized substring matching of quoted spans against retrieved chunk text, strict in the safe direction. Its limit is that **the model chooses what to quote**: prose outside the `[[CITATIONS]]` block is entirely unverified, so any assertion made without quoting passes unchecked. Extend from quoted spans to every assertion in the answer, and render unsupported claims struck or flagged **inline** — an architect skimming for the answer will not scroll to a verification block. Note this needs no fine-tuned critic; it is Self-RAG's `ISSUP` signal approximated with entailment over already-retrieved text, which keeps every check traceable to a real chunk |
+
+**Considered and rejected: GraphRAG.** It is the most intellectually attractive of the three and the worst fit here. GraphRAG builds its index by running an LLM over the corpus to extract entities and relations, then runs an LLM over *those* to write community summaries; query time retrieves from that derived layer. That inserts an unauditable, LLM-generated stratum between the vendor's documentation and the architect's answer — at ingest time, where errors are baked in, unreviewable, and invisible at the point of use. For a stack whose value proposition is *the architect can click through to the vendor's own words on a specific page*, that is a structural regression: it adds hallucination surface to buy synthesis capability. It also buys the wrong capability. GraphRAG earns its keep on global sensemaking ("what themes run across this corpus"); solution architects ask constraint and compatibility questions — does X support Y, what is the limit on Z, what does A depend on. Those are lookup and multi-hop-join questions. Multi-hop *is* a real weakness today (single retrieval round, no decomposition), but the fix is query decomposition inside the agent loop (11.3), which keeps every hop traceable to a real chunk. Consistent with the Phase 4c/6.30 line: make the source findable, never synthesize a substitute for it.
+
+**Sequencing.** 11.1 gates everything — it is the only item with no dependency and the only one that makes the others measurable. 11.2 is independent of 11.3/11.4 and can land alongside. 11.4 is the highest value-per-line of the four, since it extends code that already exists.
+
+**Cost, stated plainly.** Roughly 3–4 extra LLM round-trips per query; on the RTX 3090 dev node that is real, user-visible latency, and it competes for the same card as embedding and reranker (see the GPU topology note under Deployment Notes). The judgement on offer: an architect will wait fifteen seconds for an answer they can trust, and will stop using the stack altogether after one expensive wrong answer. On the L40S production target the trade is easier.
+
+**Interaction with the Phase 6 query-rewrite result.** Phase 6 measured always-on query rewriting as net-negative and defaulted `QUERY_REWRITE` off. That does **not** invalidate the rewrite/decompose step in 11.3: the trigger condition is different. Rewriting every query degrades the good ones; rewriting only those whose retrieval already graded poorly has no good case left to damage. Worth re-measuring under the new trigger rather than inheriting the old verdict.
+
+---
+
 ## Deployment Notes — Compose ↔ Kubernetes parity (audit 2026-06-24)
 
 Static audit of the Helm charts vs the compose stack (not live-tested — no spare cluster). Service **images** are CI-built from the same `Dockerfile`/`main.py`, so application code + deps are identical across both; only env/config wiring can drift.
@@ -441,6 +472,8 @@ Static audit of the Helm charts vs the compose stack (not live-tested — no spa
 - [ ] Re-run the Phase 5 hybrid ablation now that the FTS5 hyphenated-query bug (10.1) is fixed — "hybrid is neutral" was measured with the lexical leg partly broken.
 - [ ] Retrofit `rag-admin` off standalone Basic Auth onto `rag_auth` (Effort C) for one identity model across the stack.
 - [x] Should Docling's multimodal features (chart/image understanding) be enabled? — **Resolved 2026-06-24:** Docling removed entirely (see Phase 4c). Image-rich pages handled via Tesseract OCR for findability; no vision model. A VLM-based diagram-description path remains possible later for label-free graphics, gated behind config, ideally on the L40S.
+- [ ] Commit to Phase 11, or leave it parked? The blocking sub-question is whether ~3–4 extra LLM round-trips per query is acceptable latency for this audience — answerable on the L40S, not on the 3090.
+- [ ] Where does version/platform metadata (11.2) come from — parsed from document text at ingest, from the `rag-admin` upload form, or from collection naming convention? Affects whether it can be backfilled over the existing corpus.
 - [ ] Will Harbor be set up for the internal container registry, or use `imagePullPolicy: Never`?
 - [ ] How many L40S GPUs will be in the production cluster, and will they be in one node or spread across nodes?
 
@@ -495,5 +528,5 @@ After downloading, set these env vars in your Helm deployments (Phase 1.2):
 | Elasticsearch (BM25 + kNN) | Qdrant (vector) + SQLite FTS5 (BM25) |
 | NeMo Retriever Extraction | PyMuPDF + Tesseract OCR + headless LibreOffice (Docling removed — see Phase 4c) |
 | LangChain orchestration | FastAPI custom orchestrator (ai-agent) |
-| LangGraph multi-hop | Future work |
+| LangGraph multi-hop | Future work — see Phase 11.3 (query decomposition inside the agent loop, no new framework) |
 | OpenTelemetry observability | Prometheus `/metrics` on the first-party services (Phase 9.9); tracing is future work |
